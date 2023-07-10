@@ -1,0 +1,15 @@
+{
+  "extends": "@lifeomic/typescript-config",
+  "include": ["src"],
+  "compilerOptions": {
+    "target": "es2020",
+    "module": "commonjs",
+    "lib": ["ESNext"],
+    "outDir": "./dist",
+    "inlineSources": false,
+    "inlineSourceMap": false,
+    "esModuleInterop": false,
+    "declaration": true,
+    "skipLibCheck": true
+  }
+}
