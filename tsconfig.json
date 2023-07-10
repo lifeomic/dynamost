@@ -8,7 +8,7 @@
     "outDir": "./dist",
     "inlineSources": false,
     "inlineSourceMap": false,
-    "esModuleInterop": false,
+    "esModuleInterop": true,
     "declaration": true,
     "skipLibCheck": true
   }
