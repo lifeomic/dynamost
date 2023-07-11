@@ -1,13 +1,9 @@
-import {
-  PutCommandInput,
-  QueryCommandInput,
-  UpdateCommandInput,
-} from '@aws-sdk/lib-dynamodb';
+import { PutCommandInput, UpdateCommandInput } from '@aws-sdk/lib-dynamodb';
 import { SetRequired } from 'type-fest';
 
-import { KeySchema } from './';
+import { KeySchema } from './dynamo-table';
 
-type BaseDynamoDBCondition<Entity> = {
+type BaseDynamoDBExpression<Entity> = {
   'attribute-exists'?: (keyof Entity)[];
   'attribute-not-exists'?: (keyof Entity)[];
   equals?: {
@@ -40,9 +36,9 @@ type BaseDynamoDBCondition<Entity> = {
  * This object describes serializers for each of the operators we support.
  */
 const Serializers: {
-  [Key in keyof BaseDynamoDBCondition<any>]-?: (
-    ctx: Pick<RefContext, 'getSubjectRef' | 'getObjectRef'>,
-    condition: NonNullable<BaseDynamoDBCondition<any>[Key]>,
+  [Key in keyof BaseDynamoDBExpression<any>]-?: (
+    ctx: Pick<ExpressionContext, 'getSubjectRef' | 'getObjectRef'>,
+    condition: NonNullable<BaseDynamoDBExpression<any>[Key]>,
   ) => string[];
 } = {
   'attribute-exists': (ctx, keys) =>
@@ -99,16 +95,15 @@ const Serializers: {
 };
 
 /**
- * A DynamoDB condition is a way to express a set of conditions that must be
- * met in order for a DynamoDB operation to succeed.
+ * A DynamoDB expression is a way to describe conditions on a particular item.
  *
- * When using this custom conditions syntax, follow these guidelines:
+ * When using this custom expressions syntax, follow these guidelines:
  *
- * - In a single condition _object_, all conditions are AND-ed together.
+ * - In a single expression _object_, all expressions are AND-ed together.
  *
- * - Conditions can also be AND-ed together using the `and` operator.
+ * - Expressions can also be AND-ed together using the `and` operator.
  *
- * - Conditions can be `OR-ed` together using the `or` operator.
+ * - Expressions can be `OR-ed` together using the `or` operator.
  *
  * @example
  *
@@ -116,45 +111,45 @@ const Serializers: {
  * // - the `user` attribute exists
  * // AND
  * // - the `firstName` attribute is equal to "Jane".
- * const condition = {
+ * const expression = {
  *   'attribute-exists': ['user'],
  *   equals: {
  *     firstName: 'Jane'
  *   }
  * }
  *
- * // This condition is _identical_ to the one above.
- * const condition = {
+ * // This expression is _identical_ to the one above.
+ * const expression = {
  *   and: [
  *     { 'attribute-exists': ['user'] },
  *     { equals: { firstName: 'Jane' }
  *   ]
  * }
  *
- * // This condition checks that:
+ * // This expression checks that:
  * // - the user attribute exists
  * // OR
  * // - the `firstName` attribute is equal to "Jane", AND the `lastName`
  * //   attribute is equal to "Doe".
- * const condition = {
+ * const expression = {
  *   or: [
  *     { 'attribute-exists': ['user'] },
  *     { equals: { firstName: 'Jane', lastName: 'Doe' }
  *   ]
  * }
  */
-export type DynamoDBCondition<Entity> =
-  | BaseDynamoDBCondition<Entity>
-  | { and: DynamoDBCondition<Entity>[] }
-  | { or: DynamoDBCondition<Entity>[] };
+export type DynamoDBExpression<Entity> =
+  | BaseDynamoDBExpression<Entity>
+  | { and: DynamoDBExpression<Entity>[] }
+  | { or: DynamoDBExpression<Entity>[] };
 
-const joinConditionsUsing = (
-  context: Pick<RefContext, 'getSubjectRef' | 'getObjectRef'>,
-  conditions: DynamoDBCondition<any>[],
+const joinExpressionsUsing = (
+  context: Pick<ExpressionContext, 'getSubjectRef' | 'getObjectRef'>,
+  conditions: DynamoDBExpression<any>[],
   joiner: 'OR' | 'AND',
 ) => {
   const serialized = conditions
-    .map((cond) => _serializeCondition(cond, context))
+    .map((cond) => _serializeExpression(cond, context))
     .filter(Boolean);
 
   if (serialized.length === 1) {
@@ -165,16 +160,16 @@ const joinConditionsUsing = (
   return serialized.map((cond) => `(${cond})`).join(` ${joiner} `);
 };
 
-const _serializeCondition = <Entity>(
-  condition: DynamoDBCondition<Entity>,
-  context: Pick<RefContext, 'getSubjectRef' | 'getObjectRef'>,
+const _serializeExpression = <Entity>(
+  condition: DynamoDBExpression<Entity>,
+  context: Pick<ExpressionContext, 'getSubjectRef' | 'getObjectRef'>,
 ): string | undefined => {
   if ('or' in condition) {
-    return joinConditionsUsing(context, condition.or, 'OR');
+    return joinExpressionsUsing(context, condition.or, 'OR');
   }
 
   if ('and' in condition) {
-    return joinConditionsUsing(context, condition.and, 'AND');
+    return joinExpressionsUsing(context, condition.and, 'AND');
   }
 
   // We'll build the condition list + attribute values through iterations.
@@ -209,14 +204,14 @@ const _serializeCondition = <Entity>(
  * multiple contexts in a single operation will result in duplicate refs,
  * causing undesired behavior.
  */
-type RefContext = {
+type ExpressionContext = {
   getSubjectRef: (subject: string) => string;
   getObjectRef: (object: any) => string;
   ExpressionAttributeNames: Record<string, string>;
   ExpressionAttributeValues: Record<string, any>;
 };
 
-const createRefContext = (): RefContext => {
+export const createExpressionContext = (): ExpressionContext => {
   const ExpressionAttributeNames: Record<string, string> = {};
   const getSubjectRef = (subject: string) => {
     const ref = `#${subject}`;
@@ -243,8 +238,9 @@ const createRefContext = (): RefContext => {
 /**
  * Returns DynamoDB client parameters describing the specified condition.
  */
-export const serializeCondition = <Entity>(
-  condition: DynamoDBCondition<Entity>,
+export const serializeExpression = <Entity>(
+  condition: DynamoDBExpression<Entity>,
+  opts?: { context: ExpressionContext },
 ): Pick<
   PutCommandInput,
   | 'ConditionExpression'
@@ -256,9 +252,9 @@ export const serializeCondition = <Entity>(
     getObjectRef,
     ExpressionAttributeNames,
     ExpressionAttributeValues,
-  } = createRefContext();
+  } = opts?.context ?? createExpressionContext();
 
-  const ConditionExpression = _serializeCondition(condition, {
+  const ConditionExpression = _serializeExpression(condition, {
     getSubjectRef,
     getObjectRef,
   });
@@ -278,7 +274,7 @@ export const serializeCondition = <Entity>(
 };
 
 /**
- * A description of a DynamoDB update operation.
+ * A description of a DynamoDB update expression.
  */
 export type DynamoDBUpdate<Entity> = {
   /**
@@ -290,7 +286,7 @@ export type DynamoDBUpdate<Entity> = {
 
 const _serializeUpdate = <Entity>(
   update: DynamoDBUpdate<Entity>,
-  context: Pick<RefContext, 'getSubjectRef' | 'getObjectRef'>,
+  context: Pick<ExpressionContext, 'getSubjectRef' | 'getObjectRef'>,
 ): string => {
   const expressions: string[] = [];
 
@@ -307,7 +303,7 @@ export type SerializeUpdateParams<Entity> = {
   /** The update expression to serialize. */
   update: DynamoDBUpdate<Entity>;
   /** A condition expression to include. */
-  condition?: DynamoDBCondition<Entity>;
+  condition?: DynamoDBExpression<Entity>;
 };
 
 /**
@@ -331,10 +327,10 @@ export const serializeUpdate = <Entity>({
     getObjectRef,
     ExpressionAttributeNames,
     ExpressionAttributeValues,
-  } = createRefContext();
+  } = createExpressionContext();
 
   const ConditionExpression = condition
-    ? _serializeCondition(condition, {
+    ? _serializeExpression(condition, {
         getSubjectRef,
         getObjectRef,
       })
@@ -379,7 +375,7 @@ export type KeyCondition<Entity, Keys extends KeySchema<Entity>> = {
 const serializeRangeKeyCondition = <Entity>(
   key: string,
   rangeKeyCondition: RangeKeyCondition<Entity, any>,
-): DynamoDBCondition<Entity> => {
+): DynamoDBExpression<Entity> => {
   if ('or' in rangeKeyCondition) {
     return {
       or: rangeKeyCondition.or.map((cond) =>
@@ -396,7 +392,7 @@ const serializeRangeKeyCondition = <Entity>(
     };
   }
 
-  const condition: DynamoDBCondition<Entity> = {};
+  const condition: DynamoDBExpression<Entity> = {};
 
   for (const [operator, value] of Object.entries(rangeKeyCondition)) {
     // @ts-expect-error
@@ -406,16 +402,11 @@ const serializeRangeKeyCondition = <Entity>(
   return condition;
 };
 
-export const serializeKeyCondition = <Entity, Keys extends KeySchema<Entity>>(
+export const createKeyCondition = <Entity, Keys extends KeySchema<Entity>>(
   schema: Keys,
   keyCondition: KeyCondition<Entity, Keys>,
-): Pick<
-  QueryCommandInput,
-  | 'KeyConditionExpression'
-  | 'ExpressionAttributeNames'
-  | 'ExpressionAttributeValues'
-> => {
-  const hashKeyCondition: DynamoDBCondition<any> = {
+): DynamoDBExpression<Entity> => {
+  const hashKeyCondition: DynamoDBExpression<any> = {
     equals: { [schema.hash]: keyCondition[schema.hash] },
   };
 
@@ -423,20 +414,14 @@ export const serializeKeyCondition = <Entity, Keys extends KeySchema<Entity>>(
     ? keyCondition[schema.range]
     : undefined;
 
-  const condition = rangeKeyCondition
-    ? {
-        and: [
-          hashKeyCondition,
-          serializeRangeKeyCondition(schema.range as string, rangeKeyCondition),
-        ],
-      }
-    : hashKeyCondition;
-
-  const serialized = serializeCondition(condition);
+  if (!rangeKeyCondition) {
+    return hashKeyCondition;
+  }
 
   return {
-    KeyConditionExpression: serialized.ConditionExpression,
-    ExpressionAttributeNames: serialized.ExpressionAttributeNames,
-    ExpressionAttributeValues: serialized.ExpressionAttributeValues,
+    and: [
+      hashKeyCondition,
+      serializeRangeKeyCondition(schema.range as string, rangeKeyCondition),
+    ],
   };
 };
