@@ -1,7 +1,7 @@
 import {
   DynamoDBCondition,
   DynamoDBUpdate,
-  serializeCondition,
+  serializeExpression,
   serializeUpdate,
 } from './dynamo-expressions';
 
@@ -11,10 +11,10 @@ type TestEntity = {
   name: string;
 };
 
-describe('serializeCondition', () => {
+describe('serializeExpression', () => {
   const CASES: {
     input: DynamoDBCondition<TestEntity>;
-    expect: ReturnType<typeof serializeCondition>;
+    expect: ReturnType<typeof serializeExpression>;
   }[] = [
     {
       input: {},
@@ -180,7 +180,7 @@ describe('serializeCondition', () => {
   ];
   CASES.forEach(({ input, expect: expected }, idx) => {
     test(`case ${idx}`, () => {
-      const result = serializeCondition(input);
+      const result = serializeExpression(input);
       expect(result).toStrictEqual(expected);
     });
   });

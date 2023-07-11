@@ -4,11 +4,12 @@ import { z } from 'zod';
 import _pick from 'lodash/pick';
 import retry from 'async-retry';
 import {
-  DynamoDBCondition,
+  DynamoDBExpression,
   DynamoDBUpdate,
   KeyCondition,
-  serializeCondition,
-  serializeKeyCondition,
+  createExpressionContext,
+  createKeyCondition,
+  serializeExpression,
   serializeUpdate,
 } from './dynamo-expressions';
 import { batchWrite } from './batch-write';
@@ -44,21 +45,24 @@ export type PutOptions<Item> = {
   /** Whether to allow overwriting existing records. Defaults to `false`. */
   overwrite?: boolean;
   /** A condition for the write. */
-  condition?: DynamoDBCondition<Item>;
+  condition?: DynamoDBExpression<Item>;
 };
 
 export type PatchOptions<Item> = {
   /** A condition for the write. */
-  condition?: DynamoDBCondition<Item>;
+  condition?: DynamoDBExpression<Item>;
 };
 
 export type DeleteOptions<Item> = {
   /** A condition for the write. */
-  condition?: DynamoDBCondition<Item>;
+  condition?: DynamoDBExpression<Item>;
 };
 
 /* Types for particular methods */
-export type QueryOptions = {
+export type QueryOptions<Entity> = {
+  /** A filter expression.  */
+  filter?: DynamoDBExpression<Entity>;
+
   /** The maximum number of records to retrieve. */
   limit?: number;
   /**
@@ -82,7 +86,10 @@ export type QueryResponse<Entity> = {
   nextPageToken?: string;
 };
 
-export type DeleteAllOptions = Omit<QueryOptions, 'limit' | 'nextPageToken'>;
+export type DeleteAllOptions<Entity> = Omit<
+  QueryOptions<Entity>,
+  'limit' | 'nextPageToken'
+>;
 
 export const PageToken = {
   encode: (data?: unknown) =>
@@ -122,7 +129,7 @@ export class DynamoTable<
    * @returns The newly updated item.
    */
   async put(record: z.infer<Schema>, options?: PutOptions<z.infer<Schema>>) {
-    const conditions: DynamoDBCondition<z.infer<Schema>>[] = [];
+    const conditions: DynamoDBExpression<z.infer<Schema>>[] = [];
     if (!options?.overwrite) {
       conditions.push({
         'attribute-not-exists': [this.config.keys.hash],
@@ -132,7 +139,7 @@ export class DynamoTable<
       conditions.push(options.condition);
     }
     await this.client.put({
-      ...serializeCondition({ and: conditions }),
+      ...serializeExpression({ and: conditions }),
       TableName: this.config.tableName,
       Item: this.schema.parse(record),
     });
@@ -173,7 +180,7 @@ export class DynamoTable<
     options?: DeleteOptions<z.infer<Schema>>,
   ) {
     await this.client.delete({
-      ...(options?.condition ? serializeCondition(options.condition) : {}),
+      ...(options?.condition ? serializeExpression(options.condition) : {}),
       TableName: this.config.tableName,
       Key: key,
     });
@@ -182,17 +189,32 @@ export class DynamoTable<
   private async _query(params: {
     index?: string;
     key: KeyCondition<z.infer<Schema>, any>;
-    options?: QueryOptions;
+    options?: QueryOptions<z.infer<Schema>>;
   }): Promise<QueryResponse<z.infer<Schema>>> {
     const keySchema = params.index
       ? this.config.secondaryIndexes[params.index]
       : this.config.keys;
 
-    const options: QueryOptions = params.options ?? {};
+    const options: QueryOptions<z.infer<Schema>> = params.options ?? {};
+
+    const context = createExpressionContext();
+
+    const { ConditionExpression: KeyConditionExpression } = serializeExpression(
+      // @ts-expect-error
+      createKeyCondition(keySchema, params.key),
+      { context },
+    );
+
+    const { ConditionExpression: FilterExpression } = serializeExpression(
+      options.filter ?? {},
+      { context },
+    );
 
     const result = await this.client.query({
-      // @ts-expect-error
-      ...serializeKeyCondition(keySchema, params.key),
+      ExpressionAttributeNames: context.ExpressionAttributeNames,
+      ExpressionAttributeValues: context.ExpressionAttributeValues,
+      KeyConditionExpression,
+      FilterExpression,
       TableName: this.config.tableName,
       ...(params.index ? { IndexName: params.index } : {}),
       Limit: options.limit,
@@ -212,7 +234,7 @@ export class DynamoTable<
    */
   async query(
     key: KeyCondition<z.infer<Schema>, Config['keys']>,
-    options?: QueryOptions,
+    options?: QueryOptions<z.infer<Schema>>,
   ): Promise<QueryResponse<z.infer<Schema>>> {
     return this._query({ key, options });
   }
@@ -223,7 +245,7 @@ export class DynamoTable<
   async queryIndex<IndexName extends keyof Config['secondaryIndexes'] & string>(
     index: IndexName,
     key: KeyCondition<z.infer<Schema>, Config['secondaryIndexes'][IndexName]>,
-    options?: QueryOptions,
+    options?: QueryOptions<z.infer<Schema>>,
   ): Promise<QueryResponse<z.infer<Schema>>> {
     return this._query({ index, key, options });
   }
@@ -269,7 +291,7 @@ export class DynamoTable<
   private async _deleteAll(params: {
     index?: string;
     key: KeyCondition<z.infer<Schema>, any>;
-    options?: DeleteAllOptions;
+    options?: DeleteAllOptions<z.infer<Schema>>;
   }) {
     let nextPageToken: any = undefined;
 
@@ -292,7 +314,7 @@ export class DynamoTable<
    */
   async deleteAll(
     key: KeyCondition<z.infer<Schema>, Config['keys']>,
-    options?: DeleteAllOptions,
+    options?: DeleteAllOptions<z.infer<Schema>>,
   ) {
     return this._deleteAll({ key, options });
   }
@@ -305,7 +327,7 @@ export class DynamoTable<
   >(
     index: IndexName,
     key: KeyCondition<z.infer<Schema>, Config['secondaryIndexes'][IndexName]>,
-    options?: Omit<QueryOptions, 'limit' | 'nextPageToken'>,
+    options?: DeleteAllOptions<z.infer<Schema>>,
   ) {
     return this._deleteAll({ index, key, options });
   }
