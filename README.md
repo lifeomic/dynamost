@@ -564,3 +564,49 @@ const condition = {
   ],
 };
 ```
+
+## Transactions
+
+Transactions are supported via the `TransactionManager` class. The class is
+actually independent of the `DynamoTable` abstraction, since DynamoDB
+transactions can span multiple tables.
+
+## Usage
+
+Once a `TransactionManager` instance is created, you can create a new
+instance of a write transaction by calling `createWrite`. With the transaction
+object in place, we can start adding transaction items as needed. We can
+commit the transaction by simply calling `commit` on the transaction
+object. `commit` returns a promise, so be sure to handle it correctly.
+
+```typescript
+const client = new DynamoDBClient({});
+const transactionManager = new TransactionManager(client);
+const writeTransaction = transactionManager.createWrite();
+
+const userModel = { /* some user model */ }
+const membershipModel = { /* some membership model */ }
+
+const newUser = userModel.put({
+  id: '1234',
+  name: 'john',
+  lastName: 'doe'
+});
+// We assume that `newUser.item` is a WriteTransaction item.
+writeTransaction.add(newUser.item);
+
+// Imagine having some condition to determine whether to add more
+// items to the transaction.
+if (process.env.PREMIUM_MEMBERSHIPS_ENABLED) {
+  writeTransaction.add(membershipModel.put({
+    user: newUser.id,
+    type: 'premium',
+  }));
+}
+
+await writeTransaction.commit();
+```
+
+## Caveats
+
+The `TransactionManager` currently only supports write transactions.
