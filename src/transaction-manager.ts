@@ -1,47 +1,32 @@
 import { DynamoDBDocument } from '@aws-sdk/lib-dynamodb';
-import { v4 as uuid } from 'uuid';
 
 type WriteTransactionItem = NonNullable<
   Parameters<DynamoDBDocument['transactWrite']>[0]['TransactItems']
 >[0];
 
-type WriteTransaction = {
-  id: string;
-  items: WriteTransactionItem[];
-};
+export interface Transaction {
+  addWrite(writeItem: WriteTransactionItem): void;
+}
+
+type TransactionRun<T> = (transaction: Transaction) => Promise<T>;
 
 export class TransactionManager {
-  private writeTransactions: Record<string, WriteTransaction> = {};
+  private writes: WriteTransactionItem[] = [];
+  private transaction: Transaction = {
+    addWrite: (item: WriteTransactionItem) => {
+      this.writes.push(item);
+    },
+  };
 
   constructor(private readonly client: DynamoDBDocument) {}
 
-  createWrite() {
-    const transactionId = uuid();
+  async run<T>(transactionRun: TransactionRun<T>): Promise<T> {
+    const result = await transactionRun(this.transaction);
 
-    this.writeTransactions[transactionId] = {
-      id: transactionId,
-      items: [],
-    };
+    if (this.writes.length > 0) {
+      await this.client.transactWrite({ TransactItems: this.writes });
+    }
 
-    const transactionInstance = {
-      add: (item: WriteTransactionItem) => {
-        this.writeTransactions[transactionId].items.push(item);
-
-        return transactionInstance;
-      },
-      commit: async () => {
-        const transaction = this.writeTransactions[transactionId];
-
-        await this.client.transactWrite({
-          TransactItems: transaction.items,
-        });
-
-        delete this.writeTransactions[transactionId];
-      },
-    };
-
-    return;
+    return result;
   }
-
-  // TODO: support read transactions.
 }

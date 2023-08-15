@@ -3,6 +3,8 @@ import {
   QueryCommandInput,
   UpdateCommandInput,
 } from '@aws-sdk/lib-dynamodb';
+import { SetRequired } from 'type-fest';
+
 import { KeySchema } from './dynamo-table';
 
 type BaseDynamoDBCondition<Entity> = {
@@ -314,12 +316,15 @@ export type SerializeUpdateParams<Entity> = {
 export const serializeUpdate = <Entity>({
   update,
   condition,
-}: SerializeUpdateParams<Entity>): Pick<
-  UpdateCommandInput,
-  | 'UpdateExpression'
-  | 'ConditionExpression'
-  | 'ExpressionAttributeNames'
-  | 'ExpressionAttributeValues'
+}: SerializeUpdateParams<Entity>): SetRequired<
+  Pick<
+    UpdateCommandInput,
+    | 'UpdateExpression'
+    | 'ConditionExpression'
+    | 'ExpressionAttributeNames'
+    | 'ExpressionAttributeValues'
+  >,
+  'UpdateExpression'
 > => {
   const {
     getSubjectRef,

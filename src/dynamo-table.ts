@@ -3,6 +3,7 @@ import { ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
 import { z } from 'zod';
 import _pick from 'lodash/pick';
 import retry from 'async-retry';
+
 import {
   DynamoDBCondition,
   DynamoDBUpdate,
@@ -12,6 +13,7 @@ import {
   serializeUpdate,
 } from './dynamo-expressions';
 import { batchWrite } from './batch-write';
+import { Transaction } from './transaction-manager';
 
 /* -- Utility types to support indexing + other top-level config --  */
 export type KeySchema<Entity> = {
@@ -170,13 +172,26 @@ export class DynamoTable<
    */
   async delete(
     key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
-    options?: DeleteOptions<z.infer<Schema>>,
+    options?: {
+      deleteOptions?: DeleteOptions<z.infer<Schema>>;
+      transaction?: Transaction;
+    },
   ) {
-    await this.client.delete({
-      ...(options?.condition ? serializeCondition(options.condition) : {}),
+    const Delete = {
+      ...(options?.deleteOptions?.condition
+        ? serializeCondition(options.deleteOptions.condition)
+        : {}),
       TableName: this.config.tableName,
       Key: key,
-    });
+    };
+
+    if (options?.transaction) {
+      options.transaction.addWrite({
+        Delete,
+      });
+    } else {
+      await this.client.delete(Delete);
+    }
   }
 
   private async _query(params: {
@@ -322,9 +337,12 @@ export class DynamoTable<
   async patch(
     key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
     patch: DynamoDBUpdate<z.infer<Schema>>,
-    options?: PatchOptions<z.infer<Schema>>,
+    options?: {
+      patchOptions?: PatchOptions<z.infer<Schema>>;
+      transaction?: Transaction;
+    },
   ): Promise<z.infer<Schema>> {
-    const result = await this.client.update({
+    const Update = {
       ...serializeUpdate({
         update: patch,
         condition: {
@@ -332,14 +350,25 @@ export class DynamoTable<
             // Add a condition that object exists -- patch(...) should
             // not create records.
             { 'attribute-exists': [this.config.keys.hash] },
-            options?.condition ?? {},
+            options?.patchOptions?.condition ?? {},
           ],
         },
       }),
       TableName: this.config.tableName,
       Key: key,
       ReturnValues: 'ALL_NEW',
-    });
+    };
+
+    if (options?.transaction) {
+      options.transaction.addWrite({
+        Update,
+      });
+      // TODO: this is probably not the shape we want returned here. Why is
+      // TS not catching this? We have an explicit return type.
+      return Update;
+    }
+
+    const result = await this.client.update(Update);
 
     return this.schema.parse(result.Attributes);
   }
