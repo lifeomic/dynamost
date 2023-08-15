@@ -567,46 +567,57 @@ const condition = {
 
 ## Transactions
 
-Transactions are supported via the `TransactionManager` class. The class is
-actually independent of the `DynamoTable` abstraction, since DynamoDB
-transactions can span multiple tables.
+Transactions are supported via the `TransactionManager` class, which is nicely
+integrated with the methods that the `DynamoTable` exposes.
 
 ## Usage
 
-Once a `TransactionManager` instance is created, you can create a new
-instance of a write transaction by calling `createWrite`. With the transaction
-object in place, we can start adding transaction items as needed. We can
-commit the transaction by simply calling `commit` on the transaction
-object. `commit` returns a promise, so be sure to handle it correctly.
-
 ```typescript
 const client = new DynamoDBClient({});
+
+const userTable = { /* some user table */ }
+const membershipTable = { /* some membership table */ }
 const transactionManager = new TransactionManager(client);
-const writeTransaction = transactionManager.createWrite();
 
-const userModel = { /* some user model */ }
-const membershipModel = { /* some membership model */ }
+// Run any custom logic that requires a transaction inside the callback passed
+// to "transactionManager.run". This was inspired by the sequelize transaction
+// API.
+await transactionManager.run(async (transaction) => {
+  // Write any custom logic here. Leverage transactional writes by passing in
+  // the transaction objhect to any of the DynamoTable methods that accept it.
 
-const newUser = userModel.put({
-  id: '1234',
-  name: 'john',
-  lastName: 'doe'
+  const newUser = await useTable.patch({
+    name: 'John Doe',
+  }, { transaction });
+
+  // This won't actually commit the write at this point. It'll gather all writes
+  // and execute all the callback's logic first, and then it will try to
+  // commit all the write transactions at once.
+  const result = await userTable.patch(
+    { id: 'user-id' },
+    { set: { name: 'John Doe The Second' } },
+    {
+      condition: {
+        equals: { name: 'John Doe The First' },
+      },
+      transaction,
+    },
+  );
+
+  // Some more custom logic, it can be anything...
+
+  if (!process.env.PREMIUM_MEMBERSHIPS_ENABLED) {
+    await membershipModel.delete({
+      id: 'membership-id',
+    }, { transaction })
+  }
 });
-// We assume that `newUser.item` is a WriteTransaction item.
-writeTransaction.add(newUser.item);
-
-// Imagine having some condition to determine whether to add more
-// items to the transaction.
-if (process.env.PREMIUM_MEMBERSHIPS_ENABLED) {
-  writeTransaction.add(membershipModel.put({
-    user: newUser.id,
-    type: 'premium',
-  }));
-}
-
-await writeTransaction.commit();
 ```
 
 ## Caveats
 
-The `TransactionManager` currently only supports write transactions.
+The `TransactionManager` currently only supports write transactions, and only in
+a few methods from `DynamoTable`. Transaction support can progressively
+be added to each of the methods inside `DynamoTable` by passing in an
+optional `Transaction` parameter. See the examples in `DynamoTable.patch` and
+`DynamoTable.delete`.

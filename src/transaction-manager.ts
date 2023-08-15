@@ -8,6 +8,15 @@ export interface Transaction {
   addWrite(writeItem: WriteTransactionItem): void;
 }
 
+/**
+ * The callback that TransactionManager.run takes. Callers should pass in a
+ * function that takes a transaction object and then does all the writes needed
+ * by calling relevant DynamoTable methods which accept said object. Afterward,
+ * the writes will be made in a single transaction.
+ *
+ * The function may also return a value, which will be the return value of
+ * "TransactionManager.run".
+ */
 type TransactionRun<T> = (transaction: Transaction) => Promise<T>;
 
 export class TransactionManager {
