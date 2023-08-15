@@ -584,9 +584,9 @@ const transactionManager = new TransactionManager(client);
 // API.
 await transactionManager.run(async (transaction) => {
   // Write any custom logic here. Leverage transactional writes by passing in
-  // the transaction objhect to any of the DynamoTable methods that accept it.
+  // the transaction object to any of the DynamoTable methods that accept it.
 
-  const newUser = await useTable.patch({
+  const newUser = await userTable.patch({
     name: 'John Doe',
   }, { transaction });
 
