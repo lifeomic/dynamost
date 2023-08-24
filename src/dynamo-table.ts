@@ -355,7 +355,7 @@ export class DynamoTable<
     options?: PatchOptions<z.infer<Schema>> & {
       transaction?: Transaction;
     },
-  ): Promise<z.infer<Schema>> {
+  ): Promise<z.infer<Schema> | typeof patch> {
     const Update = {
       ...serializeUpdate({
         update: patch,
@@ -377,9 +377,9 @@ export class DynamoTable<
       options.transaction.addWrite({
         Update,
       });
-      // TODO: this is probably not the shape we want returned here. Why is
-      // TS not catching this? We have an explicit return type.
-      return Update;
+      // We return the partial update since we won't have access to
+      // the final result until the transaction is committed.
+      return patch;
     }
 
     const result = await this.client.update(Update);
