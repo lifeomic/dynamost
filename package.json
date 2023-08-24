@@ -35,7 +35,6 @@
     "@types/jest": "^29.5.2",
     "@types/lodash": "^4.14.195",
     "@types/node": "^18.0.0",
-    "@types/uuid": "^9.0.2",
     "conventional-changelog-conventionalcommits": "^6.1.0",
     "eslint": "^8.44.0",
     "eslint-config-prettier": "^8.8.0",
