@@ -44,6 +44,11 @@ export type GetOptions = {
 
 type AbstractZodOBject = z.ZodObject<any, any, any>;
 
+type ConditionOptions<Item> = {
+  /** A condition for the write. */
+  condition?: DynamoDBCondition<Item>;
+};
+
 export type PutOptions<Item> = {
   /** Whether to allow overwriting existing records. Defaults to `false`. */
   overwrite?: boolean;
@@ -52,16 +57,11 @@ export type PutOptions<Item> = {
   transaction?: Transaction;
 };
 
-type BasePatchOptions<Item> = {
-  /** A condition for the write. */
-  condition?: DynamoDBCondition<Item>;
-};
-
-export type PatchOptions<Item> = BasePatchOptions<Item> & {
+export type PatchOptions<Item> = ConditionOptions<Item> & {
   transaction?: undefined;
 };
 
-export type PatchOptionsTransact<Item> = BasePatchOptions<Item> & {
+export type PatchOptionsTransact<Item> = ConditionOptions<Item> & {
   /** The transaction to add the write to. */
   transaction: Transaction;
 };
