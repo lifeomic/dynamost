@@ -614,7 +614,7 @@ await transactionManager.run(async (transaction) => {
 });
 ```
 
-## Caveats
+### Caveats
 
 The `TransactionManager` currently only supports write transactions. Transaction support can progressively be added to each of the methods inside `DynamoTable`
 by passing in an optional `Transaction` parameter.
