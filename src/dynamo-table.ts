@@ -60,15 +60,16 @@ type PatchObject<Schema extends AbstractZodOBject> = DynamoDBUpdate<
   z.infer<Schema>
 >;
 
-export type PatchOptions<Item> = {
+type BasePatchOptions<Item> = {
   /** A condition for the write. */
   condition?: DynamoDBCondition<Item>;
+};
+
+export type PatchOptions<Item> = BasePatchOptions<Item> & {
   transaction?: undefined;
 };
 
-export type PatchOptionsTransact<Item> = {
-  /** A condition for the write. */
-  condition?: DynamoDBCondition<Item>;
+export type PatchOptionsTransact<Item> = BasePatchOptions<Item> & {
   /** The transaction to add the write to. */
   transaction: Transaction;
 };
