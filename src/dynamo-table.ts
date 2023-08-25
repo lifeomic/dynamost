@@ -52,14 +52,6 @@ export type PutOptions<Item> = {
   transaction?: Transaction;
 };
 
-type PatchResult<Schema extends AbstractZodOBject> =
-  | z.infer<Schema>
-  | DynamoDBUpdate<z.infer<Schema>>;
-
-type PatchObject<Schema extends AbstractZodOBject> = DynamoDBUpdate<
-  z.infer<Schema>
->;
-
 type BasePatchOptions<Item> = {
   /** A condition for the write. */
   condition?: DynamoDBCondition<Item>;
@@ -73,6 +65,14 @@ export type PatchOptionsTransact<Item> = BasePatchOptions<Item> & {
   /** The transaction to add the write to. */
   transaction: Transaction;
 };
+
+type PatchResult<Schema extends AbstractZodOBject> =
+  | z.infer<Schema>
+  | DynamoDBUpdate<z.infer<Schema>>;
+
+type PatchObject<Schema extends AbstractZodOBject> = DynamoDBUpdate<
+  z.infer<Schema>
+>;
 
 export type DeleteOptions<Item> = {
   /** A condition for the write. */
