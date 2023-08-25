@@ -570,7 +570,7 @@ const condition = {
 Transactions are supported via the `TransactionManager` class, which is nicely
 integrated with the methods that the `DynamoTable` exposes.
 
-## Usage
+### Usage
 
 ```typescript
 const client = new DynamoDBClient({});
