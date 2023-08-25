@@ -42,6 +42,8 @@ export type GetOptions = {
   consistentRead?: boolean;
 };
 
+type AbstractZodOBject = z.ZodObject<any, any, any>;
+
 export type PutOptions<Item> = {
   /** Whether to allow overwriting existing records. Defaults to `false`. */
   overwrite?: boolean;
@@ -50,10 +52,25 @@ export type PutOptions<Item> = {
   transaction?: Transaction;
 };
 
+type PatchResult<Schema extends AbstractZodOBject> =
+  | z.infer<Schema>
+  | DynamoDBUpdate<z.infer<Schema>>;
+
+type PatchObject<Schema extends AbstractZodOBject> = DynamoDBUpdate<
+  z.infer<Schema>
+>;
+
 export type PatchOptions<Item> = {
   /** A condition for the write. */
   condition?: DynamoDBCondition<Item>;
-  transaction?: Transaction;
+  transaction?: undefined;
+};
+
+export type PatchOptionsTransact<Item> = {
+  /** A condition for the write. */
+  condition?: DynamoDBCondition<Item>;
+  /** The transaction to add the write to. */
+  transaction: Transaction;
 };
 
 export type DeleteOptions<Item> = {
@@ -99,7 +116,7 @@ export const PageToken = {
 };
 
 export class DynamoTable<
-  Schema extends z.ZodObject<any, any, any>,
+  Schema extends AbstractZodOBject,
   Config extends RoughConfig<z.infer<Schema>>,
 > {
   constructor(
@@ -345,11 +362,23 @@ export class DynamoTable<
    *
    * @returns The updated item.
    */
-  async patch(
+  patch(
     key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
-    patch: DynamoDBUpdate<z.infer<Schema>>,
+    patch: PatchObject<Schema>,
     options?: PatchOptions<z.infer<Schema>>,
-  ): Promise<z.infer<Schema> | typeof patch> {
+  ): Promise<PatchResult<Schema>>;
+  patch(
+    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    patch: PatchObject<Schema>,
+    options: PatchOptionsTransact<z.infer<Schema>>,
+  ): PatchResult<Schema>;
+  patch(
+    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    patch: PatchObject<Schema>,
+    options?:
+      | PatchOptions<z.infer<Schema>>
+      | PatchOptionsTransact<z.infer<Schema>>,
+  ): Promise<PatchResult<Schema>> | PatchResult<Schema> {
     const Update = {
       ...serializeUpdate({
         update: patch,
@@ -376,9 +405,9 @@ export class DynamoTable<
       return patch;
     }
 
-    const result = await this.client.update(Update);
-
-    return this.schema.parse(result.Attributes);
+    return this.client.update(Update).then((result) => {
+      return this.schema.parse(result.Attributes);
+    });
   }
 
   /**

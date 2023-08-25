@@ -587,7 +587,7 @@ const transactionManager = new TransactionManager(client);
 // Run any custom logic that requires a transaction inside the callback passed
 // to "transactionManager.run". This was inspired by the sequelize transaction
 // API.
-await transactionManager.run(async (transaction) => {
+await transactionManager.run((transaction) => {
   // Write any custom logic here. Leverage transactional writes by passing in
   // the transaction object to any of the DynamoTable methods that accept it.
 

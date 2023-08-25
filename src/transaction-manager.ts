@@ -17,7 +17,7 @@ export interface Transaction {
  * The function may also return a value, which will be the return value of
  * "TransactionManager.run".
  */
-type TransactionRun<T> = (transaction: Transaction) => Promise<T>;
+type TransactionRun<T> = (transaction: Transaction) => T;
 
 export class TransactionManager {
   private writes: WriteTransactionItem[] = [];
@@ -30,7 +30,7 @@ export class TransactionManager {
   constructor(private readonly client: DynamoDBDocument) {}
 
   async run<T>(transactionRun: TransactionRun<T>): Promise<T> {
-    const result = await transactionRun(this.transaction);
+    const result = transactionRun(this.transaction);
 
     if (this.writes.length > 0) {
       await this.client.transactWrite({ TransactItems: this.writes });
