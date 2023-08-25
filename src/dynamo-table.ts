@@ -47,16 +47,19 @@ export type PutOptions<Item> = {
   overwrite?: boolean;
   /** A condition for the write. */
   condition?: DynamoDBCondition<Item>;
+  transaction?: Transaction;
 };
 
 export type PatchOptions<Item> = {
   /** A condition for the write. */
   condition?: DynamoDBCondition<Item>;
+  transaction?: Transaction;
 };
 
 export type DeleteOptions<Item> = {
   /** A condition for the write. */
   condition?: DynamoDBCondition<Item>;
+  transaction?: Transaction;
 };
 
 /* Types for particular methods */
@@ -123,12 +126,7 @@ export class DynamoTable<
    * @param options Options for the put.
    * @returns The newly updated item.
    */
-  async put(
-    record: z.infer<Schema>,
-    options?: PutOptions<z.infer<Schema>> & {
-      transaction?: Transaction;
-    },
-  ) {
+  async put(record: z.infer<Schema>, options?: PutOptions<z.infer<Schema>>) {
     const conditions: DynamoDBCondition<z.infer<Schema>>[] = [];
     if (!options?.overwrite) {
       conditions.push({
@@ -190,9 +188,7 @@ export class DynamoTable<
    */
   async delete(
     key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
-    options?: DeleteOptions<z.infer<Schema>> & {
-      transaction?: Transaction;
-    },
+    options?: DeleteOptions<z.infer<Schema>>,
   ) {
     const Delete = {
       ...(options?.condition ? serializeCondition(options.condition) : {}),
@@ -352,9 +348,7 @@ export class DynamoTable<
   async patch(
     key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
     patch: DynamoDBUpdate<z.infer<Schema>>,
-    options?: PatchOptions<z.infer<Schema>> & {
-      transaction?: Transaction;
-    },
+    options?: PatchOptions<z.infer<Schema>>,
   ): Promise<z.infer<Schema> | typeof patch> {
     const Update = {
       ...serializeUpdate({
