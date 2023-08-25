@@ -573,10 +573,15 @@ integrated with the methods that the `DynamoTable` exposes.
 ### Usage
 
 ```typescript
-const client = new DynamoDBClient({});
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocument } from '@aws-sdk/lib-dynamodb';
+import { DynamoTable } from '@lifeomic/dynamost';
 
-const userTable = { /* some user table */ }
-const membershipTable = { /* some membership table */ }
+const client = new DynamoDBClient({});
+const tableClient  = DynamoDBDocument.from(client)
+
+const userTable = new DynamoTable(tableClient, /* user table definition */);
+const membershipTable = new DynamoTable(tableClient, /* membership table definition */);
 const transactionManager = new TransactionManager(client);
 
 // Run any custom logic that requires a transaction inside the callback passed
