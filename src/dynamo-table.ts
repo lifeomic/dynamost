@@ -44,13 +44,29 @@ export type GetOptions = {
 
 type AbstractZodOBject = z.ZodObject<any, any, any>;
 
-export type PutOptions<Item> = {
-  /** Whether to allow overwriting existing records. Defaults to `false`. */
-  overwrite?: boolean;
+type BaseWriteOptions<Item> = {
   /** A condition for the write. */
   condition?: DynamoDBCondition<Item>;
-  transaction?: Transaction;
 };
+
+type BaseTransactOptions = {
+  /** The transaction to add the write to. */
+  transaction: Transaction;
+};
+
+type BasePutOptions = {
+  /** Whether to allow overwriting existing records. Defaults to `false`. */
+  overwrite?: boolean;
+};
+
+export type PutOptions<Item> = BasePutOptions &
+  BaseWriteOptions<Item> & {
+    transaction?: undefined;
+  };
+
+export type PutOptionsTransact<Item> = BasePutOptions &
+  BaseWriteOptions<Item> &
+  BaseTransactOptions;
 
 type PatchResult<Schema extends AbstractZodOBject> =
   | z.infer<Schema>
@@ -60,25 +76,19 @@ type PatchObject<Schema extends AbstractZodOBject> = DynamoDBUpdate<
   z.infer<Schema>
 >;
 
-type BasePatchOptions<Item> = {
-  /** A condition for the write. */
-  condition?: DynamoDBCondition<Item>;
-};
-
-export type PatchOptions<Item> = BasePatchOptions<Item> & {
+export type PatchOptions<Item> = BaseWriteOptions<Item> & {
   transaction?: undefined;
 };
 
-export type PatchOptionsTransact<Item> = BasePatchOptions<Item> & {
-  /** The transaction to add the write to. */
-  transaction: Transaction;
+export type PatchOptionsTransact<Item> = BaseWriteOptions<Item> &
+  BaseTransactOptions;
+
+export type DeleteOptions<Item> = BaseWriteOptions<Item> & {
+  transaction?: undefined;
 };
 
-export type DeleteOptions<Item> = {
-  /** A condition for the write. */
-  condition?: DynamoDBCondition<Item>;
-  transaction?: Transaction;
-};
+export type DeleteOptionsTransact<Item> = BaseWriteOptions<Item> &
+  BaseTransactOptions;
 
 /* Types for particular methods */
 export type QueryOptions = {
@@ -144,7 +154,18 @@ export class DynamoTable<
    * @param options Options for the put.
    * @returns The newly updated item.
    */
-  async put(record: z.infer<Schema>, options?: PutOptions<z.infer<Schema>>) {
+  put(
+    record: z.infer<Schema>,
+    options?: PutOptions<z.infer<Schema>>,
+  ): Promise<z.infer<Schema>>;
+  put(
+    record: z.infer<Schema>,
+    options?: PutOptionsTransact<z.infer<Schema>>,
+  ): z.infer<Schema>;
+  put(
+    record: z.infer<Schema>,
+    options?: PutOptions<z.infer<Schema>> | PutOptionsTransact<z.infer<Schema>>,
+  ): Promise<z.infer<Schema>> | z.infer<Schema> {
     const conditions: DynamoDBCondition<z.infer<Schema>>[] = [];
     if (!options?.overwrite) {
       conditions.push({
@@ -166,11 +187,13 @@ export class DynamoTable<
       options.transaction.addWrite({
         Put,
       });
-    } else {
-      await this.client.put(Put);
+
+      return record;
     }
 
-    return record;
+    return this.client.put(Put).then(() => {
+      return record;
+    });
   }
 
   /**
@@ -204,10 +227,20 @@ export class DynamoTable<
    * @param key
    * @param options
    */
-  async delete(
+  delete(
     key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
     options?: DeleteOptions<z.infer<Schema>>,
-  ) {
+  ): Promise<void>;
+  delete(
+    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    options?: DeleteOptionsTransact<z.infer<Schema>>,
+  ): void;
+  delete(
+    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    options?:
+      | DeleteOptions<z.infer<Schema>>
+      | DeleteOptionsTransact<z.infer<Schema>>,
+  ): Promise<void> | void {
     const Delete = {
       ...(options?.condition ? serializeCondition(options.condition) : {}),
       TableName: this.config.tableName,
@@ -215,12 +248,16 @@ export class DynamoTable<
     };
 
     if (options?.transaction) {
-      options.transaction.addWrite({
+      return options.transaction.addWrite({
         Delete,
       });
-    } else {
-      await this.client.delete(Delete);
     }
+
+    return this.client.delete(Delete).then(() => {
+      // Not using await so we can make the overload work without the "async"
+      // keyword.
+      return;
+    });
   }
 
   private async _query(params: {
