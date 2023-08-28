@@ -29,11 +29,19 @@ export class TransactionManager {
 
   constructor(private readonly client: DynamoDBDocument) {}
 
+  private flushWrites() {
+    this.writes = [];
+  }
+
   async run<T>(transactionRun: TransactionRun<T>): Promise<T> {
     const result = transactionRun(this.transaction);
 
     if (this.writes.length > 0) {
-      await this.client.transactWrite({ TransactItems: this.writes });
+      try {
+        await this.client.transactWrite({ TransactItems: this.writes });
+      } finally {
+        this.flushWrites();
+      }
     }
 
     return result;
