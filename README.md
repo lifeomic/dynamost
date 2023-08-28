@@ -586,18 +586,23 @@ const transactionManager = new TransactionManager(client);
 
 // Run any custom logic that requires a transaction inside the callback passed
 // to "transactionManager.run". This was inspired by the sequelize transaction
-// API.
+// API. The callback (i.e. the transaction runner) should be synchronous. The
+// reason for this is so that the compiler can catch when the transaction object
+// is not passed to transaction methods like "put". Transaction methods are
+// overloaded and have a sync and asyn version. When a transaction object is
+// not passed, the operation is executed in place and returns a promise. When
+// the transaction object is passed, the operation is lazy (it only commits
+// if the full transaction succeeds) and executes synchronously.
 await transactionManager.run((transaction) => {
   // Write any custom logic here. Leverage transactional writes by passing in
   // the transaction object to any of the DynamoTable methods that accept it.
 
-  const newUser = await userTable.patch({
-    name: 'John Doe',
-  }, { transaction });
-
+  const newUser = { id: 'user-id', name: 'John Doe' };
   // This won't actually commit the write at this point. It'll gather all writes
   // and execute all the callback's logic first, and then it will try to
   // commit all the write transactions at once.
+  userTable.patch(newUser, { transaction });
+
   const result = await userTable.patch(
     { id: 'user-id' },
     { set: { name: 'John Doe The Second' } },
@@ -609,17 +614,12 @@ await transactionManager.run((transaction) => {
     },
   );
 
-  // Some more custom logic, it can be anything...
-
-  if (!process.env.PREMIUM_MEMBERSHIPS_ENABLED) {
-    await membershipModel.delete({
-      id: 'membership-id',
-    }, { transaction })
-  }
+  // Some more custom logic, it can be anything as long as it's synchronous.
 });
 ```
 
 ### Caveats
 
-The `TransactionManager` currently only supports write transactions. Transaction support can progressively be added to each of the methods inside `DynamoTable`
+The `TransactionManager` currently only supports write transactions. Transaction
+support can progressively be added to each of the methods inside `DynamoTable`
 by passing in an optional `Transaction` parameter.
