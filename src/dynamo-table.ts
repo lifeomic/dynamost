@@ -147,26 +147,12 @@ export class DynamoTable<
     );
   }
 
-  /**
-   * Creates a new item in the table.
-   *
-   * @param record The item to create.
-   * @param options Options for the put.
-   * @returns The newly updated item.
-   */
-  put(
-    record: z.infer<Schema>,
-    options?: PutOptions<z.infer<Schema>>,
-  ): Promise<z.infer<Schema>>;
-  put(
-    record: z.infer<Schema>,
-    options?: PutOptionsTransact<z.infer<Schema>>,
-  ): void;
-  put(
+  private getPut(
     record: z.infer<Schema>,
     options?: PutOptions<z.infer<Schema>> | PutOptionsTransact<z.infer<Schema>>,
-  ): Promise<z.infer<Schema>> | void {
+  ) {
     const conditions: DynamoDBCondition<z.infer<Schema>>[] = [];
+
     if (!options?.overwrite) {
       conditions.push({
         'attribute-not-exists': [this.config.keys.hash],
@@ -177,21 +163,70 @@ export class DynamoTable<
       conditions.push(options.condition);
     }
 
-    const Put = {
+    return {
       ...serializeCondition({ and: conditions }),
       TableName: this.config.tableName,
       Item: this.schema.parse(record),
     };
+  }
 
-    if (options?.transaction) {
-      return options.transaction.addWrite({
-        Put,
-      });
-    }
+  private getPatch(
+    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    patch: PatchObject<Schema>,
+    options?:
+      | PatchOptions<z.infer<Schema>>
+      | PatchOptionsTransact<z.infer<Schema>>,
+  ) {
+    return {
+      ...serializeUpdate({
+        update: patch,
+        condition: {
+          and: [
+            // Add a condition that object exists -- patch(...) should
+            // not create records.
+            { 'attribute-exists': [this.config.keys.hash] },
+            options?.condition ?? {},
+          ],
+        },
+      }),
+      TableName: this.config.tableName,
+      Key: key,
+      ReturnValues: 'ALL_NEW',
+    };
+  }
 
-    return this.client.put(Put).then(() => {
-      return record;
-    });
+  private getDelete(
+    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    options?: PutOptions<z.infer<Schema>> | PutOptionsTransact<z.infer<Schema>>,
+  ) {
+    return {
+      ...(options?.condition ? serializeCondition(options.condition) : {}),
+      TableName: this.config.tableName,
+      Key: key,
+    };
+  }
+
+  /**
+   * Creates a new item in the table.
+   *
+   * @param record The item to create.
+   * @param options Options for the put.
+   * @returns The newly updated item.
+   */
+  async put(
+    record: z.infer<Schema>,
+    options?: PutOptions<z.infer<Schema>>,
+  ): Promise<z.infer<Schema>> {
+    const result = await this.client.put(this.getPut(record, options));
+
+    return result;
+  }
+
+  putTransact(
+    record: z.infer<Schema>,
+    options: PutOptionsTransact<z.infer<Schema>>,
+  ): void {
+    options.transaction.addWrite(this.getPut(record, options));
   }
 
   /**
@@ -225,37 +260,18 @@ export class DynamoTable<
    * @param key
    * @param options
    */
-  delete(
+  async delete(
     key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
     options?: DeleteOptions<z.infer<Schema>>,
-  ): Promise<void>;
-  delete(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
-    options?: DeleteOptionsTransact<z.infer<Schema>>,
-  ): void;
-  delete(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
-    options?:
-      | DeleteOptions<z.infer<Schema>>
-      | DeleteOptionsTransact<z.infer<Schema>>,
-  ): Promise<void> | void {
-    const Delete = {
-      ...(options?.condition ? serializeCondition(options.condition) : {}),
-      TableName: this.config.tableName,
-      Key: key,
-    };
+  ): Promise<void> {
+    await this.client.delete(this.getDelete(key, options));
+  }
 
-    if (options?.transaction) {
-      return options.transaction.addWrite({
-        Delete,
-      });
-    }
-
-    return this.client.delete(Delete).then(() => {
-      // Not using await so we can make the overload work without the "async"
-      // keyword.
-      return;
-    });
+  deleteTransact(
+    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    options: DeleteOptionsTransact<z.infer<Schema>>,
+  ): void {
+    options.transaction.addWrite(this.getDelete(key, options));
   }
 
   private async _query(params: {
@@ -398,48 +414,23 @@ export class DynamoTable<
    *
    * @returns The updated item.
    */
-  patch(
+  async patch(
     key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
     patch: PatchObject<Schema>,
     options?: PatchOptions<z.infer<Schema>>,
-  ): Promise<PatchResult<Schema>>;
-  patch(
+  ): Promise<PatchResult<Schema>> {
+    const result = await this.client.update(this.getPatch(key, patch, options));
+
+    return this.schema.parse(result.Attributes);
+  }
+
+  patchTransact(
     key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
     patch: PatchObject<Schema>,
     options: PatchOptionsTransact<z.infer<Schema>>,
-  ): void;
-  patch(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
-    patch: PatchObject<Schema>,
-    options?:
-      | PatchOptions<z.infer<Schema>>
-      | PatchOptionsTransact<z.infer<Schema>>,
-  ): Promise<PatchResult<Schema>> | void {
-    const Update = {
-      ...serializeUpdate({
-        update: patch,
-        condition: {
-          and: [
-            // Add a condition that object exists -- patch(...) should
-            // not create records.
-            { 'attribute-exists': [this.config.keys.hash] },
-            options?.condition ?? {},
-          ],
-        },
-      }),
-      TableName: this.config.tableName,
-      Key: key,
-      ReturnValues: 'ALL_NEW',
-    };
-
-    if (options?.transaction) {
-      return options.transaction.addWrite({
-        Update,
-      });
-    }
-
-    return this.client.update(Update).then((result) => {
-      return this.schema.parse(result.Attributes);
+  ): void {
+    options.transaction.addWrite({
+      Update: this.getPatch(key, patch, options),
     });
   }
 

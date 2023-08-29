@@ -587,23 +587,19 @@ const transactionManager = new TransactionManager(client);
 // Run any custom logic that requires a transaction inside the callback passed
 // to "transactionManager.run". This was inspired by the sequelize transaction
 // API. The callback (i.e. the transaction runner) should be synchronous. The
-// reason for this is so that the compiler can catch when the transaction object
-// is not passed to transaction methods like "put". Transaction methods are
-// overloaded and have a sync and asyn version. When a transaction object is
-// not passed, the operation is executed in place and returns a promise. When
-// the transaction object is passed, the operation is lazy (it only commits
-// if the full transaction succeeds) and executes synchronously.
+// reason for this is so that the compiler can catch incorrect uses of
+// non-transactional methods.
 await transactionManager.run((transaction) => {
   // Write any custom logic here. Leverage transactional writes by passing in
   // the transaction object to any of the DynamoTable methods that accept it.
 
   const newUser = { id: 'user-1', name: 'John Doe' };
   // This won't actually commit the write at this point. It'll gather all writes
-  // and execute all the callback's logic first, and then it will try to
+  // and execute all the callback's logic first. After that, it will try to
   // commit all the write transactions at once.
-  userTable.put(newUser, { transaction });
+  userTable.putTransact(newUser, { transaction });
 
-  userTable.patch(
+  userTable.patchTransact(
     { id: 'user-2' },
     { set: { name: 'John Snow' } },
     {
@@ -613,6 +609,10 @@ await transactionManager.run((transaction) => {
       transaction,
     },
   );
+
+  const newMembership = { userId: 'user-1', type: 'basic' };
+  // You can use multiple tables when executing a transaction.
+  membershipTable.putTransact(newMembership, { transaction });
 
   // Some more custom logic, it can be anything as long as it's synchronous.
 });
