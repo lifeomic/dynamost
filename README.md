@@ -597,18 +597,18 @@ await transactionManager.run((transaction) => {
   // Write any custom logic here. Leverage transactional writes by passing in
   // the transaction object to any of the DynamoTable methods that accept it.
 
-  const newUser = { id: 'user-id', name: 'John Doe' };
+  const newUser = { id: 'user-1', name: 'John Doe' };
   // This won't actually commit the write at this point. It'll gather all writes
   // and execute all the callback's logic first, and then it will try to
   // commit all the write transactions at once.
-  userTable.patch(newUser, { transaction });
+  userTable.put(newUser, { transaction });
 
-  const result = await userTable.patch(
-    { id: 'user-id' },
-    { set: { name: 'John Doe The Second' } },
+  userTable.patch(
+    { id: 'user-2' },
+    { set: { name: 'John Snow' } },
     {
       condition: {
-        equals: { name: 'John Doe The First' },
+        equals: { name: 'John S.' },
       },
       transaction,
     },
