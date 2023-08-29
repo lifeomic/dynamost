@@ -217,9 +217,9 @@ export class DynamoTable<
     record: z.infer<Schema>,
     options?: PutOptions<z.infer<Schema>>,
   ): Promise<z.infer<Schema>> {
-    const result = await this.client.put(this.getPut(record, options));
+    await this.client.put(this.getPut(record, options));
 
-    return result;
+    return record;
   }
 
   putTransact(

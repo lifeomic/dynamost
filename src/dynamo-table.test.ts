@@ -38,7 +38,7 @@ describe('DynamoTable', () => {
     expect(fetchedUser?.id).toBe(user.id);
 
     await transactionManager.run((transaction) => {
-      userTable.put(
+      userTable.putTransact(
         {
           id: 'user-2',
           account: 'account-1',
@@ -47,7 +47,7 @@ describe('DynamoTable', () => {
         { transaction },
       );
 
-      userTable.patch(
+      userTable.patchTransact(
         { id: user.id },
         {
           set: {
@@ -71,9 +71,9 @@ describe('DynamoTable', () => {
       await transactionManager.run((transaction) => {
         // The first two actions should not go through because the patch on a
         // non existent user will fail.
-        userTable.delete({ id: 'user-1' }, { transaction });
+        userTable.deleteTransact({ id: 'user-1' }, { transaction });
 
-        userTable.patch(
+        userTable.patchTransact(
           { id: 'user-2' },
           {
             set: {
@@ -84,7 +84,7 @@ describe('DynamoTable', () => {
         );
 
         // This is the operation that causes the transaction to fail.
-        userTable.patch(
+        userTable.patchTransact(
           { id: 'non-existent-user' },
           {
             set: {
