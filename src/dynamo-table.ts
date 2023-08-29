@@ -161,11 +161,11 @@ export class DynamoTable<
   put(
     record: z.infer<Schema>,
     options?: PutOptionsTransact<z.infer<Schema>>,
-  ): z.infer<Schema>;
+  ): void;
   put(
     record: z.infer<Schema>,
     options?: PutOptions<z.infer<Schema>> | PutOptionsTransact<z.infer<Schema>>,
-  ): Promise<z.infer<Schema>> | z.infer<Schema> {
+  ): Promise<z.infer<Schema>> | void {
     const conditions: DynamoDBCondition<z.infer<Schema>>[] = [];
     if (!options?.overwrite) {
       conditions.push({
@@ -184,11 +184,9 @@ export class DynamoTable<
     };
 
     if (options?.transaction) {
-      options.transaction.addWrite({
+      return options.transaction.addWrite({
         Put,
       });
-
-      return record;
     }
 
     return this.client.put(Put).then(() => {
@@ -409,14 +407,14 @@ export class DynamoTable<
     key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
     patch: PatchObject<Schema>,
     options: PatchOptionsTransact<z.infer<Schema>>,
-  ): PatchResult<Schema>;
+  ): void;
   patch(
     key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
     patch: PatchObject<Schema>,
     options?:
       | PatchOptions<z.infer<Schema>>
       | PatchOptionsTransact<z.infer<Schema>>,
-  ): Promise<PatchResult<Schema>> | PatchResult<Schema> {
+  ): Promise<PatchResult<Schema>> | void {
     const Update = {
       ...serializeUpdate({
         update: patch,
@@ -435,12 +433,9 @@ export class DynamoTable<
     };
 
     if (options?.transaction) {
-      options.transaction.addWrite({
+      return options.transaction.addWrite({
         Update,
       });
-      // We return the partial update since we won't have access to
-      // the final result until the transaction is committed.
-      return patch;
     }
 
     return this.client.update(Update).then((result) => {
