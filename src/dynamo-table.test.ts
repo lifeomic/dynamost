@@ -23,7 +23,7 @@ describe('DynamoTable', () => {
     });
     const transactionManager = new TransactionManager(dynamo.documentClient);
 
-    expect.assertions(7);
+    expect.assertions(6);
 
     const user = await userTable.put({
       id: 'user-1',
@@ -38,7 +38,7 @@ describe('DynamoTable', () => {
     expect(fetchedUser?.id).toBe(user.id);
 
     await transactionManager.run((transaction) => {
-      const user2 = userTable.put(
+      userTable.put(
         {
           id: 'user-2',
           account: 'account-1',
@@ -46,8 +46,6 @@ describe('DynamoTable', () => {
         },
         { transaction },
       );
-
-      expect(user2.id).toBe(user2.id);
 
       userTable.patch(
         { id: user.id },
