@@ -226,7 +226,9 @@ export class DynamoTable<
     record: z.infer<Schema>,
     options: PutOptionsTransact<z.infer<Schema>>,
   ): void {
-    options.transaction.addWrite(this.getPut(record, options));
+    options.transaction.addWrite({
+      Put: this.getPut(record, options),
+    });
   }
 
   /**
@@ -271,7 +273,9 @@ export class DynamoTable<
     key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
     options: DeleteOptionsTransact<z.infer<Schema>>,
   ): void {
-    options.transaction.addWrite(this.getDelete(key, options));
+    options.transaction.addWrite({
+      Delete: this.getDelete(key, options),
+    });
   }
 
   private async _query(params: {
