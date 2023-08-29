@@ -42,6 +42,8 @@ export class TransactionManager {
       } finally {
         this.flushWrites();
       }
+    } else {
+      throw new Error('No writes were added to the transaction');
     }
 
     return result;
