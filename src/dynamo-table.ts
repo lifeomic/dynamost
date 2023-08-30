@@ -64,14 +64,9 @@ type BasePutOptions = {
   overwrite?: boolean;
 };
 
-export type PutOptions<Item> = BasePutOptions &
-  BaseWriteOptions<Item> & {
-    transaction?: undefined;
-  };
+export type PutOptions<Item> = BasePutOptions & BaseWriteOptions<Item>;
 
-export type PutOptionsTransact<Item> = BasePutOptions &
-  BaseWriteOptions<Item> &
-  BaseTransactOptions;
+export type PutOptionsTransact<Item> = PutOptions<Item> & BaseTransactOptions;
 
 type PatchResult<Schema extends AbstractZodOBject> =
   | z.infer<Schema>
@@ -81,18 +76,14 @@ type PatchObject<Schema extends AbstractZodOBject> = DynamoDBUpdate<
   z.infer<Schema>
 >;
 
-export type PatchOptions<Item> = BaseWriteOptions<Item> & {
-  transaction?: undefined;
-};
+export type PatchOptions<Item> = BaseWriteOptions<Item>;
 
-export type PatchOptionsTransact<Item> = BaseWriteOptions<Item> &
+export type PatchOptionsTransact<Item> = PatchOptions<Item> &
   BaseTransactOptions;
 
-export type DeleteOptions<Item> = BaseWriteOptions<Item> & {
-  transaction?: undefined;
-};
+export type DeleteOptions<Item> = BaseWriteOptions<Item>;
 
-export type DeleteOptionsTransact<Item> = BaseWriteOptions<Item> &
+export type DeleteOptionsTransact<Item> = DeleteOptions<Item> &
   BaseTransactOptions;
 
 /* Types for particular methods */
@@ -152,7 +143,7 @@ export class DynamoTable<
 
   private getPut(
     record: z.infer<Schema>,
-    options?: PutOptions<z.infer<Schema>> | PutOptionsTransact<z.infer<Schema>>,
+    options?: PutOptions<z.infer<Schema>>,
   ) {
     const conditions: DynamoDBCondition<z.infer<Schema>>[] = [];
 
@@ -176,9 +167,7 @@ export class DynamoTable<
   private getPatch(
     key: TableKey<this>,
     patch: PatchObject<Schema>,
-    options?:
-      | PatchOptions<z.infer<Schema>>
-      | PatchOptionsTransact<z.infer<Schema>>,
+    options?: PatchOptions<z.infer<Schema>>,
   ) {
     return {
       ...serializeUpdate({
@@ -200,9 +189,7 @@ export class DynamoTable<
 
   private getDelete(
     key: TableKey<this>,
-    options?:
-      | DeleteOptions<z.infer<Schema>>
-      | DeleteOptionsTransact<z.infer<Schema>>,
+    options?: DeleteOptions<z.infer<Schema>>,
   ) {
     return {
       ...(options?.condition ? serializeCondition(options.condition) : {}),
