@@ -41,10 +41,8 @@ type Operation<TMode extends BatchMode> = Omit<
       };
     };
 
-type BatchWriteInput<TMode extends BatchMode> = Pick<
-  RetryBatchWriteInput,
-  'client'
-> & {
+type BatchWriteInput<TMode extends BatchMode> = {
+  client: DynamoDBDocument;
   table: string;
   request: Operation<TMode>[];
 };

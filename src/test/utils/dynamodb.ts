@@ -1,6 +1,7 @@
 import { CreateTableInput, DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocument } from '@aws-sdk/lib-dynamodb';
 import { dynamoDBTestHooks } from '@lifeomic/test-tool-dynamodb';
+import { z } from 'zod';
 
 export const testUserTableName = 'dynamost-user-table';
 
@@ -59,3 +60,17 @@ export const useDynamoDB = () => {
 
   return context;
 };
+
+export const UserSchema = z.object({
+  createdAt: z.string().datetime(),
+  account: z.string(),
+  id: z.string(),
+});
+
+export const UserTableDefinition = {
+  tableName: testUserTableName,
+  keys: { hash: 'id', range: 'createdAt' },
+  secondaryIndexes: {
+    'account-index': { hash: 'account', range: 'createdAt' },
+  },
+} as const;
