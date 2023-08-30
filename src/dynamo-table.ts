@@ -30,13 +30,18 @@ type RoughConfig<Entity> = {
   secondaryIndexes: { [key: string]: KeySchema<Entity> };
 };
 
-type CompleteKeyForIndex<Entity, Keys extends KeySchema<Entity>> = {
-  [Key in Keys['hash']]: Entity[Keys['hash']];
-} & undefined extends Keys['range']
-  ? {}
-  : {
-      [Key in NonNullable<Keys['range']>]: string;
-    };
+export type TableKey<Table> = Table extends DynamoTable<
+  infer Schema,
+  infer Config
+>
+  ? {
+      [Key in Config['keys']['hash']]: z.infer<Schema>[Config['keys']['hash']];
+    } & (undefined extends Config['keys']['range']
+      ? {}
+      : {
+          [Key in NonNullable<Config['keys']['range']>]: string;
+        })
+  : never;
 
 export type GetOptions = {
   consistentRead?: boolean;
@@ -136,15 +141,13 @@ export class DynamoTable<
     private readonly config: Config,
   ) {}
 
-  private keyFromRecord(
-    record: z.infer<Schema>,
-  ): CompleteKeyForIndex<z.infer<Schema>, Config['keys']> {
+  private keyFromRecord(record: z.infer<Schema>): TableKey<this> {
     return _pick(
       record,
       this.config.keys.hash,
       // @ts-expect-error
       this.config.keys.range,
-    );
+    ) as TableKey<this>;
   }
 
   private getPut(
@@ -171,7 +174,7 @@ export class DynamoTable<
   }
 
   private getPatch(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    key: TableKey<this>,
     patch: PatchObject<Schema>,
     options?:
       | PatchOptions<z.infer<Schema>>
@@ -196,8 +199,10 @@ export class DynamoTable<
   }
 
   private getDelete(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
-    options?: PutOptions<z.infer<Schema>> | PutOptionsTransact<z.infer<Schema>>,
+    key: TableKey<this>,
+    options?:
+      | DeleteOptions<z.infer<Schema>>
+      | DeleteOptionsTransact<z.infer<Schema>>,
   ) {
     return {
       ...(options?.condition ? serializeCondition(options.condition) : {}),
@@ -240,7 +245,7 @@ export class DynamoTable<
    * @returns The fetched item, or `undefined` if the item does not exist.
    */
   async get(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    key: TableKey<this>,
     options?: GetOptions,
   ): Promise<z.infer<Schema> | undefined> {
     const result = await this.client.get({
@@ -263,14 +268,14 @@ export class DynamoTable<
    * @param options
    */
   async delete(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    key: TableKey<this>,
     options?: DeleteOptions<z.infer<Schema>>,
   ): Promise<void> {
     await this.client.delete(this.getDelete(key, options));
   }
 
   deleteTransact(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    key: TableKey<this>,
     options: DeleteOptionsTransact<z.infer<Schema>>,
   ): void {
     options.transaction.addWrite({
@@ -355,9 +360,7 @@ export class DynamoTable<
    *
    * @param keys A list of keys.
    */
-  async batchDelete(
-    keys: CompleteKeyForIndex<z.infer<Schema>, Config['keys']>[],
-  ) {
+  async batchDelete(keys: TableKey<this>[]) {
     await batchWrite<'delete'>({
       client: this.client,
       table: this.config.tableName,
@@ -419,7 +422,7 @@ export class DynamoTable<
    * @returns The updated item.
    */
   async patch(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    key: TableKey<this>,
     patch: PatchObject<Schema>,
     options?: PatchOptions<z.infer<Schema>>,
   ): Promise<PatchResult<Schema>> {
@@ -429,7 +432,7 @@ export class DynamoTable<
   }
 
   patchTransact(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    key: TableKey<this>,
     patch: PatchObject<Schema>,
     options: PatchOptionsTransact<z.infer<Schema>>,
   ): void {
@@ -450,7 +453,7 @@ export class DynamoTable<
    * and returns the desired new state of the item.
    */
   async upsert(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    key: TableKey<this>,
     modification: (
       existing: z.infer<Schema> | undefined,
       retry: (reason: string) => never,

@@ -69,7 +69,7 @@ export const UserSchema = z.object({
 
 export const UserTableDefinition = {
   tableName: testUserTableName,
-  keys: { hash: 'id', range: 'createdAt' },
+  keys: { hash: 'id', range: undefined },
   secondaryIndexes: {
     'account-index': { hash: 'account', range: 'createdAt' },
   },
