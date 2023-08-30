@@ -1,26 +1,20 @@
-import { z } from 'zod';
-
-import { testUserTableName, useDynamoDB } from './test/utils/dynamodb';
+import {
+  UserSchema,
+  UserTableDefinition,
+  useDynamoDB,
+} from './test/utils/dynamodb';
 import { DynamoTable } from './dynamo-table';
 import { TransactionManager } from './transaction-manager';
 
 const dynamo = useDynamoDB();
 
 describe('DynamoTable', () => {
-  const UserSchema = z.object({
-    createdAt: z.string().datetime(),
-    account: z.string(),
-    id: z.string(),
-  });
-
   it('can execute transactional writes', async () => {
-    const userTable = new DynamoTable(dynamo.documentClient, UserSchema, {
-      tableName: testUserTableName,
-      keys: { hash: 'id', range: 'createdAt' },
-      secondaryIndexes: {
-        'account-index': { hash: 'account', range: 'createdAt' },
-      },
-    });
+    const userTable = new DynamoTable(
+      dynamo.documentClient,
+      UserSchema,
+      UserTableDefinition,
+    );
     const transactionManager = new TransactionManager(dynamo.documentClient);
 
     expect.assertions(6);
