@@ -1,4 +1,7 @@
-import { DynamoDBDocument } from '@aws-sdk/lib-dynamodb';
+import {
+  DynamoDBDocument,
+  TransactWriteCommandInput,
+} from '@aws-sdk/lib-dynamodb';
 import { ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
 import { z } from 'zod';
 import _pick from 'lodash/pick';
@@ -13,7 +16,6 @@ import {
   serializeUpdate,
 } from './dynamo-expressions';
 import { batchWrite } from './batch-write';
-import { Transaction } from './transaction-manager';
 
 /* -- Utility types to support indexing + other top-level config --  */
 export type KeySchema<Entity> = {
@@ -21,7 +23,7 @@ export type KeySchema<Entity> = {
   range: keyof Entity | undefined;
 };
 
-type RoughConfig<Entity> = {
+export type RoughConfig<Entity> = {
   /** The name of the table. */
   tableName: string;
   /** The key schema for the table. */
@@ -56,7 +58,7 @@ type BaseWriteOptions<Item> = {
 
 type BaseTransactOptions = {
   /** The transaction to add the write to. */
-  transaction: Transaction;
+  transaction: any;
 };
 
 type BasePutOptions = {
@@ -117,6 +119,38 @@ export type QueryResponse<Entity> = {
 
 export type DeleteAllOptions = Omit<QueryOptions, 'limit' | 'nextPageToken'>;
 
+type TransactWriteItem = NonNullable<
+  TransactWriteCommandInput['TransactItems']
+>[number];
+
+export type TransactionItem<Item, Key> =
+  | {
+      type: 'put';
+      item: Item;
+      /** A condition for the write. */
+      condition?: DynamoDBCondition<Item>;
+      /** Whether to allow overwriting existing records. Defaults to `false`. */
+      overwrite?: boolean;
+    }
+  | {
+      type: 'patch';
+      key: Key;
+      patch: DynamoDBUpdate<Item>;
+      /** A condition for the write. */
+      condition?: DynamoDBCondition<Item>;
+    }
+  | {
+      type: 'delete';
+      key: Key;
+      /** A condition for the write. */
+      condition?: DynamoDBCondition<Item>;
+    }
+  | {
+      type: 'condition-check';
+      key: Key;
+      condition: DynamoDBCondition<Item>;
+    };
+
 export const PageToken = {
   encode: (data?: unknown) =>
     data ? Buffer.from(JSON.stringify(data)).toString('base64') : undefined,
@@ -132,8 +166,8 @@ export class DynamoTable<
 > {
   constructor(
     private readonly client: DynamoDBDocument,
-    private readonly schema: Schema,
-    private readonly config: Config,
+    public readonly schema: Schema,
+    public readonly config: Config,
   ) {}
 
   private keyFromRecord(record: z.infer<Schema>): TableKey<this> {
@@ -521,5 +555,41 @@ export class DynamoTable<
       },
       { retries: 3, minTimeout: 100 },
     );
+  }
+
+  toTransactWriteItems(
+    items: TransactionItem<z.infer<Schema>, TableKey<this>>[],
+  ): TransactWriteItem[] {
+    return items.map((item) => {
+      switch (item.type) {
+        case 'put':
+          return {
+            Put: this.getPut(item.item, {
+              condition: item.condition,
+              overwrite: item.overwrite,
+            }),
+          };
+        case 'patch':
+          return {
+            Update: this.getPatch(item.key, item.patch, {
+              condition: item.condition,
+            }),
+          };
+        case 'delete':
+          return {
+            Delete: this.getDelete(item.key, { condition: item.condition }),
+          };
+        case 'condition-check':
+          return {
+            ConditionCheck: {
+              // Currently, serializeCondition can return an undefined `ConditionExpression`, which
+              // is not allowed in the type here. We use "as any" to ignore this case.
+              ...(serializeCondition(item.condition) as any),
+              Key: item.key,
+              TableName: this.config.tableName,
+            },
+          };
+      }
+    });
   }
 }
