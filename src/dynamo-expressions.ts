@@ -5,7 +5,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import { SetRequired } from 'type-fest';
 
-import { KeySchema } from './dynamo-table';
+import { KeySchema } from './';
 
 type BaseDynamoDBCondition<Entity> = {
   'attribute-exists'?: (keyof Entity)[];
