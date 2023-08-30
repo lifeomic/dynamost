@@ -3,6 +3,7 @@ import { ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
 import { z } from 'zod';
 import _pick from 'lodash/pick';
 import retry from 'async-retry';
+
 import {
   DynamoDBCondition,
   DynamoDBUpdate,
@@ -12,6 +13,7 @@ import {
   serializeUpdate,
 } from './dynamo-expressions';
 import { batchWrite } from './batch-write';
+import { Transaction } from './transaction-manager';
 
 /* -- Utility types to support indexing + other top-level config --  */
 export type KeySchema<Entity> = {
@@ -40,22 +42,53 @@ export type GetOptions = {
   consistentRead?: boolean;
 };
 
-export type PutOptions<Item> = {
+type AbstractZodOBject = z.ZodObject<any, any, any>;
+
+type BaseWriteOptions<Item> = {
+  /** A condition for the write. */
+  condition?: DynamoDBCondition<Item>;
+};
+
+type BaseTransactOptions = {
+  /** The transaction to add the write to. */
+  transaction: Transaction;
+};
+
+type BasePutOptions = {
   /** Whether to allow overwriting existing records. Defaults to `false`. */
   overwrite?: boolean;
-  /** A condition for the write. */
-  condition?: DynamoDBCondition<Item>;
 };
 
-export type PatchOptions<Item> = {
-  /** A condition for the write. */
-  condition?: DynamoDBCondition<Item>;
+export type PutOptions<Item> = BasePutOptions &
+  BaseWriteOptions<Item> & {
+    transaction?: undefined;
+  };
+
+export type PutOptionsTransact<Item> = BasePutOptions &
+  BaseWriteOptions<Item> &
+  BaseTransactOptions;
+
+type PatchResult<Schema extends AbstractZodOBject> =
+  | z.infer<Schema>
+  | DynamoDBUpdate<z.infer<Schema>>;
+
+type PatchObject<Schema extends AbstractZodOBject> = DynamoDBUpdate<
+  z.infer<Schema>
+>;
+
+export type PatchOptions<Item> = BaseWriteOptions<Item> & {
+  transaction?: undefined;
 };
 
-export type DeleteOptions<Item> = {
-  /** A condition for the write. */
-  condition?: DynamoDBCondition<Item>;
+export type PatchOptionsTransact<Item> = BaseWriteOptions<Item> &
+  BaseTransactOptions;
+
+export type DeleteOptions<Item> = BaseWriteOptions<Item> & {
+  transaction?: undefined;
 };
+
+export type DeleteOptionsTransact<Item> = BaseWriteOptions<Item> &
+  BaseTransactOptions;
 
 /* Types for particular methods */
 export type QueryOptions = {
@@ -94,7 +127,7 @@ export const PageToken = {
 };
 
 export class DynamoTable<
-  Schema extends z.ZodObject<any, any, any>,
+  Schema extends AbstractZodOBject,
   Config extends RoughConfig<z.infer<Schema>>,
 > {
   constructor(
@@ -114,6 +147,65 @@ export class DynamoTable<
     );
   }
 
+  private getPut(
+    record: z.infer<Schema>,
+    options?: PutOptions<z.infer<Schema>> | PutOptionsTransact<z.infer<Schema>>,
+  ) {
+    const conditions: DynamoDBCondition<z.infer<Schema>>[] = [];
+
+    if (!options?.overwrite) {
+      conditions.push({
+        'attribute-not-exists': [this.config.keys.hash],
+      });
+    }
+
+    if (options?.condition) {
+      conditions.push(options.condition);
+    }
+
+    return {
+      ...serializeCondition({ and: conditions }),
+      TableName: this.config.tableName,
+      Item: this.schema.parse(record),
+    };
+  }
+
+  private getPatch(
+    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    patch: PatchObject<Schema>,
+    options?:
+      | PatchOptions<z.infer<Schema>>
+      | PatchOptionsTransact<z.infer<Schema>>,
+  ) {
+    return {
+      ...serializeUpdate({
+        update: patch,
+        condition: {
+          and: [
+            // Add a condition that object exists -- patch(...) should
+            // not create records.
+            { 'attribute-exists': [this.config.keys.hash] },
+            options?.condition ?? {},
+          ],
+        },
+      }),
+      TableName: this.config.tableName,
+      Key: key,
+      ReturnValues: 'ALL_NEW',
+    };
+  }
+
+  private getDelete(
+    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    options?: PutOptions<z.infer<Schema>> | PutOptionsTransact<z.infer<Schema>>,
+  ) {
+    return {
+      ...(options?.condition ? serializeCondition(options.condition) : {}),
+      TableName: this.config.tableName,
+      Key: key,
+    };
+  }
+
   /**
    * Creates a new item in the table.
    *
@@ -121,22 +213,22 @@ export class DynamoTable<
    * @param options Options for the put.
    * @returns The newly updated item.
    */
-  async put(record: z.infer<Schema>, options?: PutOptions<z.infer<Schema>>) {
-    const conditions: DynamoDBCondition<z.infer<Schema>>[] = [];
-    if (!options?.overwrite) {
-      conditions.push({
-        'attribute-not-exists': [this.config.keys.hash],
-      });
-    }
-    if (options?.condition) {
-      conditions.push(options.condition);
-    }
-    await this.client.put({
-      ...serializeCondition({ and: conditions }),
-      TableName: this.config.tableName,
-      Item: this.schema.parse(record),
-    });
+  async put(
+    record: z.infer<Schema>,
+    options?: PutOptions<z.infer<Schema>>,
+  ): Promise<z.infer<Schema>> {
+    await this.client.put(this.getPut(record, options));
+
     return record;
+  }
+
+  putTransact(
+    record: z.infer<Schema>,
+    options: PutOptionsTransact<z.infer<Schema>>,
+  ): void {
+    options.transaction.addWrite({
+      Put: this.getPut(record, options),
+    });
   }
 
   /**
@@ -156,9 +248,11 @@ export class DynamoTable<
       Key: key,
       ConsistentRead: options?.consistentRead,
     });
+
     if (!result.Item) {
       return undefined;
     }
+
     return this.schema.parse(result.Item);
   }
 
@@ -171,11 +265,16 @@ export class DynamoTable<
   async delete(
     key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
     options?: DeleteOptions<z.infer<Schema>>,
-  ) {
-    await this.client.delete({
-      ...(options?.condition ? serializeCondition(options.condition) : {}),
-      TableName: this.config.tableName,
-      Key: key,
+  ): Promise<void> {
+    await this.client.delete(this.getDelete(key, options));
+  }
+
+  deleteTransact(
+    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    options: DeleteOptionsTransact<z.infer<Schema>>,
+  ): void {
+    options.transaction.addWrite({
+      Delete: this.getDelete(key, options),
     });
   }
 
@@ -321,38 +420,34 @@ export class DynamoTable<
    */
   async patch(
     key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
-    patch: DynamoDBUpdate<z.infer<Schema>>,
+    patch: PatchObject<Schema>,
     options?: PatchOptions<z.infer<Schema>>,
-  ): Promise<z.infer<Schema>> {
-    const result = await this.client.update({
-      ...serializeUpdate({
-        update: patch,
-        condition: {
-          and: [
-            // Add a condition that object exists -- patch(...) should
-            // not create records.
-            { 'attribute-exists': [this.config.keys.hash] },
-            options?.condition ?? {},
-          ],
-        },
-      }),
-      TableName: this.config.tableName,
-      Key: key,
-      ReturnValues: 'ALL_NEW',
-    });
+  ): Promise<PatchResult<Schema>> {
+    const result = await this.client.update(this.getPatch(key, patch, options));
 
     return this.schema.parse(result.Attributes);
   }
 
+  patchTransact(
+    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    patch: PatchObject<Schema>,
+    options: PatchOptionsTransact<z.infer<Schema>>,
+  ): void {
+    options.transaction.addWrite({
+      Update: this.getPatch(key, patch, options),
+    });
+  }
+
   /**
-   * Performs a guaranteed "strict" update on the specified item. Guarantees that the
-   * modification described by the `calculate` function will be applied exactly. If the
-   * state of the existing item changes in any way between the time it is fetched and the
-   * time the update is applied, the update will fail.
+   * Performs a guaranteed "strict" update on the specified item. Guarantees
+   * that the modification described by the `calculate` function will be applied
+   * exactly. If the state of the existing item changes in any way between the
+   * time it is fetched and the time the update is applied, the update will
+   * fail.
    *
    * @param key The key of the item to update.
-   * @param modification A function that takes the existing item (if it exists) and returns
-   * the desired new state of the item.
+   * @param modification A function that takes the existing item (if it exists)
+   * and returns the desired new state of the item.
    */
   async upsert(
     key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
@@ -373,7 +468,8 @@ export class DynamoTable<
             }),
           );
 
-          // Remove the hash key -- including it on the update will result in an error.
+          // Remove the hash key -- including it on the update will result in an
+          // error.
           delete updated[this.config.keys.hash];
 
           const result = await this.client.update({
