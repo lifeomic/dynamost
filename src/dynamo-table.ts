@@ -3,6 +3,7 @@ import { ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
 import { z } from 'zod';
 import _pick from 'lodash/pick';
 import retry from 'async-retry';
+import { SetRequired } from 'type-fest';
 
 import {
   DynamoDBCondition,
@@ -80,15 +81,12 @@ export type PatchOptions<Item> = BaseWriteOptions<Item> & {
   transaction?: undefined;
 };
 
-export type PatchOptionsTransact<Item> = BaseWriteOptions<Item> &
+export type BaseWriteOptionsTransact<Item> = BaseWriteOptions<Item> &
   BaseTransactOptions;
 
 export type DeleteOptions<Item> = BaseWriteOptions<Item> & {
   transaction?: undefined;
 };
-
-export type DeleteOptionsTransact<Item> = BaseWriteOptions<Item> &
-  BaseTransactOptions;
 
 /* Types for particular methods */
 export type QueryOptions = {
@@ -175,7 +173,7 @@ export class DynamoTable<
     patch: PatchObject<Schema>,
     options?:
       | PatchOptions<z.infer<Schema>>
-      | PatchOptionsTransact<z.infer<Schema>>,
+      | BaseWriteOptionsTransact<z.infer<Schema>>,
   ) {
     return {
       ...serializeUpdate({
@@ -271,7 +269,7 @@ export class DynamoTable<
 
   deleteTransact(
     key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
-    options: DeleteOptionsTransact<z.infer<Schema>>,
+    options: BaseWriteOptionsTransact<z.infer<Schema>>,
   ): void {
     options.transaction.addWrite({
       Delete: this.getDelete(key, options),
@@ -431,10 +429,31 @@ export class DynamoTable<
   patchTransact(
     key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
     patch: PatchObject<Schema>,
-    options: PatchOptionsTransact<z.infer<Schema>>,
+    options: BaseWriteOptionsTransact<z.infer<Schema>>,
   ): void {
     options.transaction.addWrite({
       Update: this.getPatch(key, patch, options),
+    });
+  }
+
+  conditionTransact(
+    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    options: SetRequired<
+      BaseWriteOptionsTransact<z.infer<Schema>>,
+      'condition'
+    >,
+  ): void {
+    const serializedCondition = serializeCondition(options.condition);
+
+    options.transaction.addWrite({
+      ConditionCheck: {
+        ConditionExpression: serializedCondition.ConditionExpression,
+        ExpressionAttributeNames: serializedCondition.ExpressionAttributeNames,
+        ExpressionAttributeValues:
+          serializedCondition.ExpressionAttributeValues,
+        Key: key,
+        TableName: this.config.tableName,
+      },
     });
   }
 
