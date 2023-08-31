@@ -3,7 +3,6 @@ import { ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
 import { z } from 'zod';
 import _pick from 'lodash/pick';
 import retry from 'async-retry';
-import { SetRequired } from 'type-fest';
 
 import {
   DynamoDBCondition,
@@ -31,13 +30,18 @@ type RoughConfig<Entity> = {
   secondaryIndexes: { [key: string]: KeySchema<Entity> };
 };
 
-type CompleteKeyForIndex<Entity, Keys extends KeySchema<Entity>> = {
-  [Key in Keys['hash']]: Entity[Keys['hash']];
-} & undefined extends Keys['range']
-  ? {}
-  : {
-      [Key in NonNullable<Keys['range']>]: string;
-    };
+export type TableKey<Table> = Table extends DynamoTable<
+  infer Schema,
+  infer Config
+>
+  ? {
+      [Key in Config['keys']['hash']]: z.infer<Schema>[Config['keys']['hash']];
+    } & (undefined extends Config['keys']['range']
+      ? {}
+      : {
+          [Key in NonNullable<Config['keys']['range']>]: string;
+        })
+  : never;
 
 export type GetOptions = {
   consistentRead?: boolean;
@@ -60,14 +64,9 @@ type BasePutOptions = {
   overwrite?: boolean;
 };
 
-export type PutOptions<Item> = BasePutOptions &
-  BaseWriteOptions<Item> & {
-    transaction?: undefined;
-  };
+export type PutOptions<Item> = BasePutOptions & BaseWriteOptions<Item>;
 
-export type PutOptionsTransact<Item> = BasePutOptions &
-  BaseWriteOptions<Item> &
-  BaseTransactOptions;
+export type PutOptionsTransact<Item> = PutOptions<Item> & BaseTransactOptions;
 
 type PatchResult<Schema extends AbstractZodOBject> =
   | z.infer<Schema>
@@ -77,16 +76,19 @@ type PatchObject<Schema extends AbstractZodOBject> = DynamoDBUpdate<
   z.infer<Schema>
 >;
 
-export type PatchOptions<Item> = BaseWriteOptions<Item> & {
-  transaction?: undefined;
-};
+export type PatchOptions<Item> = BaseWriteOptions<Item>;
 
-export type BaseWriteOptionsTransact<Item> = BaseWriteOptions<Item> &
+export type PatchOptionsTransact<Item> = PatchOptions<Item> &
   BaseTransactOptions;
 
-export type DeleteOptions<Item> = BaseWriteOptions<Item> & {
-  transaction?: undefined;
-};
+export type DeleteOptions<Item> = BaseWriteOptions<Item>;
+
+export type DeleteOptionsTransact<Item> = DeleteOptions<Item> &
+  BaseTransactOptions;
+
+export type ConditionCheckOptionsTransact<Item> = {
+  condition: DynamoDBCondition<Item>;
+} & BaseTransactOptions;
 
 /* Types for particular methods */
 export type QueryOptions = {
@@ -134,20 +136,18 @@ export class DynamoTable<
     private readonly config: Config,
   ) {}
 
-  private keyFromRecord(
-    record: z.infer<Schema>,
-  ): CompleteKeyForIndex<z.infer<Schema>, Config['keys']> {
+  private keyFromRecord(record: z.infer<Schema>): TableKey<this> {
     return _pick(
       record,
       this.config.keys.hash,
       // @ts-expect-error
       this.config.keys.range,
-    );
+    ) as TableKey<this>;
   }
 
   private getPut(
     record: z.infer<Schema>,
-    options?: PutOptions<z.infer<Schema>> | PutOptionsTransact<z.infer<Schema>>,
+    options?: PutOptions<z.infer<Schema>>,
   ) {
     const conditions: DynamoDBCondition<z.infer<Schema>>[] = [];
 
@@ -169,11 +169,9 @@ export class DynamoTable<
   }
 
   private getPatch(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    key: TableKey<this>,
     patch: PatchObject<Schema>,
-    options?:
-      | PatchOptions<z.infer<Schema>>
-      | BaseWriteOptionsTransact<z.infer<Schema>>,
+    options?: PatchOptions<z.infer<Schema>>,
   ) {
     return {
       ...serializeUpdate({
@@ -194,8 +192,8 @@ export class DynamoTable<
   }
 
   private getDelete(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
-    options?: PutOptions<z.infer<Schema>> | PutOptionsTransact<z.infer<Schema>>,
+    key: TableKey<this>,
+    options?: DeleteOptions<z.infer<Schema>>,
   ) {
     return {
       ...(options?.condition ? serializeCondition(options.condition) : {}),
@@ -238,7 +236,7 @@ export class DynamoTable<
    * @returns The fetched item, or `undefined` if the item does not exist.
    */
   async get(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    key: TableKey<this>,
     options?: GetOptions,
   ): Promise<z.infer<Schema> | undefined> {
     const result = await this.client.get({
@@ -261,15 +259,15 @@ export class DynamoTable<
    * @param options
    */
   async delete(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    key: TableKey<this>,
     options?: DeleteOptions<z.infer<Schema>>,
   ): Promise<void> {
     await this.client.delete(this.getDelete(key, options));
   }
 
   deleteTransact(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
-    options: BaseWriteOptionsTransact<z.infer<Schema>>,
+    key: TableKey<this>,
+    options: DeleteOptionsTransact<z.infer<Schema>>,
   ): void {
     options.transaction.addWrite({
       Delete: this.getDelete(key, options),
@@ -353,9 +351,7 @@ export class DynamoTable<
    *
    * @param keys A list of keys.
    */
-  async batchDelete(
-    keys: CompleteKeyForIndex<z.infer<Schema>, Config['keys']>[],
-  ) {
+  async batchDelete(keys: TableKey<this>[]) {
     await batchWrite<'delete'>({
       client: this.client,
       table: this.config.tableName,
@@ -417,7 +413,7 @@ export class DynamoTable<
    * @returns The updated item.
    */
   async patch(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    key: TableKey<this>,
     patch: PatchObject<Schema>,
     options?: PatchOptions<z.infer<Schema>>,
   ): Promise<PatchResult<Schema>> {
@@ -427,9 +423,9 @@ export class DynamoTable<
   }
 
   patchTransact(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    key: TableKey<this>,
     patch: PatchObject<Schema>,
-    options: BaseWriteOptionsTransact<z.infer<Schema>>,
+    options: PatchOptionsTransact<z.infer<Schema>>,
   ): void {
     options.transaction.addWrite({
       Update: this.getPatch(key, patch, options),
@@ -437,11 +433,8 @@ export class DynamoTable<
   }
 
   conditionTransact(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
-    options: SetRequired<
-      BaseWriteOptionsTransact<z.infer<Schema>>,
-      'condition'
-    >,
+    key: TableKey<this>,
+    options: ConditionCheckOptionsTransact<z.infer<Schema>>,
   ): void {
     const serializedCondition = serializeCondition(options.condition);
 
@@ -469,7 +462,7 @@ export class DynamoTable<
    * and returns the desired new state of the item.
    */
   async upsert(
-    key: Required<CompleteKeyForIndex<z.infer<Schema>, Config['keys']>>,
+    key: TableKey<this>,
     modification: (
       existing: z.infer<Schema> | undefined,
       retry: (reason: string) => never,
