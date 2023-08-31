@@ -17,7 +17,7 @@ describe('DynamoTable', () => {
     );
     const transactionManager = new TransactionManager(dynamo.documentClient);
 
-    expect.assertions(6);
+    expect.assertions(9);
 
     const user = await userTable.put({
       id: 'user-1',
@@ -101,6 +101,51 @@ describe('DynamoTable', () => {
 
     // Validate that the first user is still present, and that the second user
     // still has the same account.
+    expect(user1?.account).toBe('account-2');
+    expect(user2?.account).toBe('account-1');
+
+    // Test that a transaction with an unmet condition does not make any
+    // changes.
+    await expect(async () => {
+      await transactionManager.run((transaction) => {
+        // The first two actions should not go through because the condition
+        // check will fail.
+        userTable.deleteTransact({ id: 'user-1' }, { transaction });
+
+        userTable.patchTransact(
+          { id: 'user-2' },
+          {
+            set: {
+              account: 'account-3',
+            },
+          },
+          { transaction },
+        );
+
+        // This is the operation that causes the transaction to fail.
+        userTable.conditionTransact(
+          { id: 'user-1' },
+          {
+            // This condition causes a failure, since user 1 is assigned to
+            // account 2.
+            condition: { equals: { account: 'account-1' } },
+            transaction,
+          },
+        );
+      });
+    }).rejects.toThrow(
+      new Error(
+        'Transaction cancelled, please refer cancellation reasons for specific reasons [None, None, ConditionalCheckFailed]',
+      ),
+    );
+
+    [user1, user2] = await Promise.all([
+      userTable.get({ id: 'user-1' }),
+      userTable.get({ id: 'user-2' }),
+    ]);
+
+    // One more time, validate that the first user is still present, and that
+    // the second user still has the same account.
     expect(user1?.account).toBe('account-2');
     expect(user2?.account).toBe('account-1');
   });
