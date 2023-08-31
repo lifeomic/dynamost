@@ -86,6 +86,10 @@ export type DeleteOptions<Item> = BaseWriteOptions<Item>;
 export type DeleteOptionsTransact<Item> = DeleteOptions<Item> &
   BaseTransactOptions;
 
+export type ConditionCheckOptionsTransact<Item> = {
+  condition: DynamoDBCondition<Item>;
+} & BaseTransactOptions;
+
 /* Types for particular methods */
 export type QueryOptions = {
   /** The maximum number of records to retrieve. */
@@ -425,6 +429,24 @@ export class DynamoTable<
   ): void {
     options.transaction.addWrite({
       Update: this.getPatch(key, patch, options),
+    });
+  }
+
+  conditionTransact(
+    key: TableKey<this>,
+    options: ConditionCheckOptionsTransact<z.infer<Schema>>,
+  ): void {
+    const serializedCondition = serializeCondition(options.condition);
+
+    options.transaction.addWrite({
+      ConditionCheck: {
+        ConditionExpression: serializedCondition.ConditionExpression,
+        ExpressionAttributeNames: serializedCondition.ExpressionAttributeNames,
+        ExpressionAttributeValues:
+          serializedCondition.ExpressionAttributeValues,
+        Key: key,
+        TableName: this.config.tableName,
+      },
     });
   }
 
