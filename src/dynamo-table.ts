@@ -115,7 +115,7 @@ export type QueryResponse<Entity> = {
   nextPageToken?: string;
 };
 
-export type ScanOptions = {
+export type ScanOptions<Entity> = {
   /** The maximum number of records to retrieve. */
   limit?: number;
   /**
@@ -127,6 +127,8 @@ export type ScanOptions = {
    * Whether to perform a consistent read during scan.
    */
   consistentRead?: boolean;
+
+  filter?: DynamoDBCondition<Entity>;
 };
 
 export type ScanResponse<Entity> = {
@@ -387,10 +389,25 @@ export class DynamoTable<
     return this._query({ index, key, options });
   }
 
-  private async _scan(options: ScanOptions) {
+  private async _scan<Entity>(options: ScanOptions<Entity>) {
+    const {
+      ConditionExpression,
+      ExpressionAttributeNames,
+      ExpressionAttributeValues,
+    } = options.filter
+      ? serializeCondition(options.filter)
+      : {
+          ConditionExpression: undefined,
+          ExpressionAttributeNames: undefined,
+          ExpressionAttributeValues: undefined,
+        };
+
     const result = await this.client.scan({
       TableName: this.config.tableName,
       Limit: options.limit,
+      FilterExpression: ConditionExpression,
+      ExpressionAttributeNames,
+      ExpressionAttributeValues,
       ExclusiveStartKey: PageToken.decode(options.nextPageToken),
       ConsistentRead: options.consistentRead,
     });
@@ -405,9 +422,9 @@ export class DynamoTable<
    * Scans the database
    */
   async scan(
-    options: ScanOptions = {},
+    options: ScanOptions<z.infer<Schema>> = {},
   ): Promise<ScanResponse<z.infer<Schema>>> {
-    return this._scan(options);
+    return this._scan<z.infer<Schema>>(options);
   }
 
   private getPatch(
