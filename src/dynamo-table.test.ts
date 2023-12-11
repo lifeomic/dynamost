@@ -137,6 +137,46 @@ describe('DynamoTable', () => {
     });
   });
 
+  describe('scan', () => {
+    it('can scan a table with pagination', async () => {
+      const { userTable } = setupDb();
+
+      // seed the db
+      await userTable.batchPut([
+        {
+          id: 'user-1',
+          account: 'account-1',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'user-2',
+          account: 'account-1',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'user-3',
+          account: 'account-2',
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      const firstSet = await userTable.scan({
+        limit: 2,
+      });
+
+      expect(firstSet.items).toHaveLength(2);
+      expect(firstSet.nextPageToken).toBeDefined();
+
+      const secondSet = await userTable.scan({
+        limit: 2,
+        nextPageToken: firstSet.nextPageToken,
+      });
+
+      expect(secondSet.items).toHaveLength(1);
+      expect(secondSet.nextPageToken).not.toBeDefined();
+    });
+  });
+
   describe('deleteAll', () => {
     it('deletes all the records that match the query', async () => {
       // TODO
