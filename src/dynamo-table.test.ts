@@ -137,6 +137,143 @@ describe('DynamoTable', () => {
     });
   });
 
+  describe('scan', () => {
+    it('can scan a table with pagination', async () => {
+      const { userTable } = setupDb();
+
+      // seed the db
+      await userTable.batchPut([
+        {
+          id: 'user-1',
+          account: 'account-1',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'user-2',
+          account: 'account-1',
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'user-3',
+          account: 'account-2',
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+
+      const firstSet = await userTable.scan({
+        limit: 2,
+      });
+
+      expect(firstSet.items).toHaveLength(2);
+      expect(firstSet.nextPageToken).toBeDefined();
+
+      const secondSet = await userTable.scan({
+        limit: 2,
+        nextPageToken: firstSet.nextPageToken,
+      });
+
+      expect(secondSet.items).toHaveLength(1);
+      expect(secondSet.nextPageToken).not.toBeDefined();
+
+      // pagination when filtering
+      const filteredSet = await userTable.scan({
+        limit: 1,
+        filter: { 'less-than': { id: 'user-3' } },
+      });
+
+      expect(filteredSet.items).toHaveLength(1);
+      expect(filteredSet.nextPageToken).toBeDefined();
+
+      const fullSet = await userTable.scan();
+
+      expect(fullSet.items).toHaveLength(3);
+      expect(fullSet.nextPageToken).not.toBeDefined();
+    });
+
+    it('can scan the table with a filter', async () => {
+      const { userTable } = setupDb();
+
+      // seed the db
+      await userTable.batchPut([
+        {
+          id: 'user-1',
+          account: 'account-1',
+          createdAt: '2018-01-01T23:00:00.000Z',
+        },
+        {
+          id: 'user-2',
+          account: 'account-1',
+          createdAt: '2019-01-01T23:00:00.000Z',
+        },
+        {
+          id: 'user-3',
+          account: 'account-2',
+          createdAt: '2020-01-01T23:00:00.000Z',
+        },
+      ]);
+
+      const accountOne = await userTable.scan({
+        filter: { equals: { account: 'account-1' } },
+      });
+
+      expect(accountOne.items).toHaveLength(2);
+      expect(accountOne.items).toStrictEqual([
+        {
+          id: 'user-1',
+          account: 'account-1',
+          createdAt: '2018-01-01T23:00:00.000Z',
+        },
+        {
+          id: 'user-2',
+          account: 'account-1',
+          createdAt: '2019-01-01T23:00:00.000Z',
+        },
+      ]);
+
+      const notAccountOne = await userTable.scan({
+        filter: { 'not-equals': { account: 'account-1' } },
+      });
+
+      expect(notAccountOne.items).toHaveLength(1);
+      expect(notAccountOne.items).toStrictEqual([
+        {
+          id: 'user-3',
+          account: 'account-2',
+          createdAt: '2020-01-01T23:00:00.000Z',
+        },
+      ]);
+
+      const usersCreatedSince = await userTable.scan({
+        filter: { 'greater-than': { createdAt: '2020-01-01' } },
+      });
+
+      expect(usersCreatedSince.items).toHaveLength(1);
+      expect(usersCreatedSince.items).toStrictEqual([
+        {
+          id: 'user-3',
+          account: 'account-2',
+          createdAt: '2020-01-01T23:00:00.000Z',
+        },
+      ]);
+
+      const usersByMultipleConditions = await userTable.scan({
+        filter: {
+          'greater-than': { id: 'user-1' },
+          'less-than': { id: 'user-3' },
+        },
+      });
+
+      expect(usersByMultipleConditions.items).toHaveLength(1);
+      expect(usersByMultipleConditions.items).toStrictEqual([
+        {
+          id: 'user-2',
+          account: 'account-1',
+          createdAt: '2019-01-01T23:00:00.000Z',
+        },
+      ]);
+    });
+  });
+
   describe('deleteAll', () => {
     it('deletes all the records that match the query', async () => {
       // TODO

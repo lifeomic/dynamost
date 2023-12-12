@@ -115,6 +115,27 @@ export type QueryResponse<Entity> = {
   nextPageToken?: string;
 };
 
+export type ScanOptions<Entity> = {
+  /** The maximum number of records to retrieve. */
+  limit?: number;
+  /**
+   * A page token from a previous query. If provided, the query will
+   * resume from where the previous query left off.
+   */
+  nextPageToken?: string;
+  /**
+   * Whether to perform a consistent read during scan.
+   */
+  consistentRead?: boolean;
+
+  filter?: DynamoDBCondition<Entity>;
+};
+
+export type ScanResponse<Entity> = {
+  items: Entity[];
+  nextPageToken?: string;
+};
+
 export type DeleteAllOptions = Omit<QueryOptions, 'limit' | 'nextPageToken'>;
 
 export const PageToken = {
@@ -366,6 +387,30 @@ export class DynamoTable<
     options?: QueryOptions,
   ): Promise<QueryResponse<z.infer<Schema>>> {
     return this._query({ index, key, options });
+  }
+
+  /**
+   * Scans the database
+   */
+  async scan(
+    options: ScanOptions<z.infer<Schema>> = {},
+  ): Promise<ScanResponse<z.infer<Schema>>> {
+    const { ConditionExpression: FilterExpression, ...expressionAttributes } =
+      serializeCondition(options.filter);
+
+    const result = await this.client.scan({
+      TableName: this.config.tableName,
+      Limit: options.limit,
+      FilterExpression,
+      ...expressionAttributes,
+      ExclusiveStartKey: PageToken.decode(options.nextPageToken),
+      ConsistentRead: options.consistentRead,
+    });
+
+    return {
+      items: (result.Items ?? []).map((item) => this.schema.parse(item)),
+      nextPageToken: PageToken.encode(result.LastEvaluatedKey),
+    };
   }
 
   private getPatch(
