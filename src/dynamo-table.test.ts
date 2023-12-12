@@ -183,6 +183,11 @@ describe('DynamoTable', () => {
 
       expect(filteredSet.items).toHaveLength(1);
       expect(filteredSet.nextPageToken).toBeDefined();
+
+      const fullSet = await userTable.scan();
+
+      expect(fullSet.items).toHaveLength(1);
+      expect(fullSet.nextPageToken).not.toBeDefined();
     });
 
     it('can scan the table with a filter', async () => {
