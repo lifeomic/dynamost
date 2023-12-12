@@ -186,7 +186,7 @@ describe('DynamoTable', () => {
 
       const fullSet = await userTable.scan();
 
-      expect(fullSet.items).toHaveLength(1);
+      expect(fullSet.items).toHaveLength(3);
       expect(fullSet.nextPageToken).not.toBeDefined();
     });
 
