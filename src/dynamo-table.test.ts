@@ -121,6 +121,75 @@ describe('DynamoTable', () => {
     });
   });
 
+  describe('batchGet', () => {
+    it('can fetch multiple items through batch api', async () => {
+      const batchGetSpy = jest.spyOn(dynamo.documentClient, 'batchGet');
+      const { userTable } = setupDb();
+
+      const ids = Array.from({ length: 101 }, (_, index) => String(index));
+
+      // seed the db
+      await userTable.batchPut(
+        ids.map((id) => ({
+          id,
+          account: 'account-1',
+          createdAt: new Date().toISOString(),
+        })),
+      );
+
+      const [first] = ids;
+
+      const batchGetFirst = await userTable.batchGet([{ id: first }], {
+        consistentRead: true,
+      });
+
+      expect(batchGetFirst).toStrictEqual([
+        { id: first, account: 'account-1', createdAt: expect.any(String) },
+      ]);
+      expect(batchGetSpy).toHaveBeenCalledTimes(1);
+      expect(batchGetSpy).toHaveBeenCalledWith({
+        RequestItems: {
+          'dynamost-user-table': {
+            ConsistentRead: true,
+            Keys: [
+              {
+                id: '0',
+              },
+            ],
+          },
+        },
+      });
+
+      batchGetSpy.mockClear();
+      const batchGetUnknown = await userTable.batchGet([{ id: 'unknown' }]);
+
+      expect(batchGetSpy).toHaveBeenCalledTimes(1);
+      expect(batchGetSpy).toHaveBeenCalledWith({
+        RequestItems: {
+          'dynamost-user-table': {
+            ConsistentRead: undefined,
+            Keys: [
+              {
+                id: 'unknown',
+              },
+            ],
+          },
+        },
+      });
+
+      expect(batchGetUnknown).toStrictEqual([]);
+
+      batchGetSpy.mockClear();
+      const batchGetOverLimit = await userTable.batchGet(
+        ids.map((id) => ({ id })),
+      );
+
+      expect(batchGetOverLimit.length).toBeGreaterThan(100);
+      expect(batchGetOverLimit).toHaveLength(ids.length);
+      expect(batchGetSpy).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('upsert', () => {
     // TODO
   });

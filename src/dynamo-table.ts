@@ -14,6 +14,8 @@ import {
 } from './dynamo-expressions';
 import { batchWrite } from './batch-write';
 import { Transaction } from './transaction-manager';
+import pMap from 'p-map';
+import chunk from 'lodash/chunk';
 
 /* -- Utility types to support indexing + other top-level config --  */
 export type KeySchema<Entity> = {
@@ -44,6 +46,10 @@ export type TableKey<Table> = Table extends DynamoTable<
   : never;
 
 export type GetOptions = {
+  consistentRead?: boolean;
+};
+
+export type BatchGetOptions = {
   consistentRead?: boolean;
 };
 
@@ -338,6 +344,35 @@ export class DynamoTable<
     }
 
     return this.schema.parse(result.Item);
+  }
+
+  async batchGet(
+    keys: TableKey<this>[],
+    options?: BatchGetOptions,
+  ): Promise<z.infer<Schema>[]> {
+    // Only process 100 items at a time to avoid error:
+    // Too many items requested for the BatchWriteItem call
+    const batchGetMaxItemCount = 100;
+
+    const results = await pMap(
+      chunk(keys, batchGetMaxItemCount),
+      (requests) =>
+        this.client.batchGet({
+          RequestItems: {
+            [this.config.tableName]: {
+              ConsistentRead: options?.consistentRead,
+              Keys: requests,
+            },
+          },
+        }),
+      {
+        concurrency: 2,
+      },
+    );
+
+    return results
+      .flatMap((set) => set.Responses?.[this.config.tableName] || [])
+      .map((item) => this.schema.parse(item));
   }
 
   private async _query(params: {
