@@ -250,6 +250,22 @@ describe('DynamoTable', () => {
           createdAt: '2020-01-01T23:00:00.000Z',
         },
       ]);
+
+      const usersByMultipleConditions = await userTable.scan({
+        filter: {
+          'greater-than': { id: 'user-1' },
+          'less-than': { id: 'user-3' },
+        },
+      });
+
+      expect(usersByMultipleConditions.items).toHaveLength(1);
+      expect(usersByMultipleConditions.items).toStrictEqual([
+        {
+          id: 'user-2',
+          account: 'account-1',
+          createdAt: '2019-01-01T23:00:00.000Z',
+        },
+      ]);
     });
   });
 

@@ -389,25 +389,20 @@ export class DynamoTable<
     return this._query({ index, key, options });
   }
 
-  private async _scan<Entity>(options: ScanOptions<Entity>) {
-    const {
-      ConditionExpression,
-      ExpressionAttributeNames,
-      ExpressionAttributeValues,
-    } = options.filter
-      ? serializeCondition(options.filter)
-      : {
-          ConditionExpression: undefined,
-          ExpressionAttributeNames: undefined,
-          ExpressionAttributeValues: undefined,
-        };
+  /**
+   * Scans the database
+   */
+  async scan(
+    options: ScanOptions<z.infer<Schema>> = {},
+  ): Promise<ScanResponse<z.infer<Schema>>> {
+    const { ConditionExpression: FilterExpression, ...expressionAttributes } =
+      serializeCondition(options.filter);
 
     const result = await this.client.scan({
       TableName: this.config.tableName,
       Limit: options.limit,
-      FilterExpression: ConditionExpression,
-      ExpressionAttributeNames,
-      ExpressionAttributeValues,
+      FilterExpression,
+      ...expressionAttributes,
       ExclusiveStartKey: PageToken.decode(options.nextPageToken),
       ConsistentRead: options.consistentRead,
     });
@@ -416,15 +411,6 @@ export class DynamoTable<
       items: (result.Items ?? []).map((item) => this.schema.parse(item)),
       nextPageToken: PageToken.encode(result.LastEvaluatedKey),
     };
-  }
-
-  /**
-   * Scans the database
-   */
-  async scan(
-    options: ScanOptions<z.infer<Schema>> = {},
-  ): Promise<ScanResponse<z.infer<Schema>>> {
-    return this._scan<z.infer<Schema>>(options);
   }
 
   private getPatch(

@@ -244,7 +244,7 @@ const createRefContext = (): RefContext => {
  * Returns DynamoDB client parameters describing the specified condition.
  */
 export const serializeCondition = <Entity>(
-  condition: DynamoDBCondition<Entity>,
+  condition: DynamoDBCondition<Entity> = {},
 ): Pick<
   PutCommandInput,
   | 'ConditionExpression'
