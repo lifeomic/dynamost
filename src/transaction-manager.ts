@@ -1,12 +1,17 @@
 import { DynamoDBDocument } from '@aws-sdk/lib-dynamodb';
-import { RequireExactlyOne } from 'type-fest';
 
 type WriteTransactionItem = NonNullable<
   Parameters<DynamoDBDocument['transactWrite']>[0]['TransactItems']
 >[0];
 
+export type TransactionItem =
+  | Pick<WriteTransactionItem, 'ConditionCheck'>
+  | Pick<WriteTransactionItem, 'Put'>
+  | Pick<WriteTransactionItem, 'Delete'>
+  | Pick<WriteTransactionItem, 'Update'>;
+
 export interface Transaction {
-  addWrite(writeItem: RequireExactlyOne<WriteTransactionItem>): void;
+  addWrite(writeItem: TransactionItem): void;
 }
 
 /**

@@ -3,7 +3,6 @@ import {
   QueryCommandInput,
   UpdateCommandInput,
 } from '@aws-sdk/lib-dynamodb';
-import { SetRequired } from 'type-fest';
 
 import { KeySchema } from './';
 
@@ -310,22 +309,22 @@ export type SerializeUpdateParams<Entity> = {
   condition?: DynamoDBCondition<Entity>;
 };
 
+type SerializeUpdateReturn = Pick<
+  UpdateCommandInput,
+  | 'ConditionExpression'
+  | 'ExpressionAttributeNames'
+  | 'ExpressionAttributeValues'
+> & {
+  UpdateExpression: string;
+};
+
 /**
  * Returns DynamoDB client parameters describing the specified update.
  */
 export const serializeUpdate = <Entity>({
   update,
   condition,
-}: SerializeUpdateParams<Entity>): SetRequired<
-  Pick<
-    UpdateCommandInput,
-    | 'UpdateExpression'
-    | 'ConditionExpression'
-    | 'ExpressionAttributeNames'
-    | 'ExpressionAttributeValues'
-  >,
-  'UpdateExpression'
-> => {
+}: SerializeUpdateParams<Entity>): SerializeUpdateReturn => {
   const {
     getSubjectRef,
     getObjectRef,
