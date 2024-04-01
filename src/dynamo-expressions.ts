@@ -356,6 +356,7 @@ export type RangeKeyCondition<Entity, Range extends keyof Entity> =
   | {
       between?: [Entity[Range], Entity[Range]];
       'begins-with'?: Entity[Range];
+      equals?: Entity[Range];
       'greater-than'?: Entity[Range];
       'greater-than-or-equal-to'?: Entity[Range];
       'less-than'?: Entity[Range];
