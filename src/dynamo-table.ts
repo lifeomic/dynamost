@@ -53,7 +53,7 @@ export type BatchGetOptions = {
   consistentRead?: boolean;
 };
 
-type AbstractZodOBject = z.ZodObject<any, any, any>;
+type AbstractZodSchema = z.ZodType<any, any, any>;
 
 type BaseWriteOptions<Item> = {
   /** A condition for the write. */
@@ -74,11 +74,11 @@ export type PutOptions<Item> = BasePutOptions & BaseWriteOptions<Item>;
 
 export type PutOptionsTransact<Item> = PutOptions<Item> & BaseTransactOptions;
 
-type PatchResult<Schema extends AbstractZodOBject> =
+type PatchResult<Schema extends AbstractZodSchema> =
   | z.infer<Schema>
   | DynamoDBUpdate<z.infer<Schema>>;
 
-type PatchObject<Schema extends AbstractZodOBject> = DynamoDBUpdate<
+type PatchObject<Schema extends AbstractZodSchema> = DynamoDBUpdate<
   z.infer<Schema>
 >;
 
@@ -154,7 +154,7 @@ export const PageToken = {
 };
 
 export class DynamoTable<
-  Schema extends AbstractZodOBject,
+  Schema extends AbstractZodSchema,
   Config extends RoughConfig<z.infer<Schema>>,
 > {
   constructor(
@@ -276,7 +276,7 @@ export class DynamoTable<
             modification(existing, (reason) => {
               throw new RetryableError(reason);
             }),
-          );
+          ) as z.infer<Schema>;
 
           // Remove the hash key -- including it on the update will result in an
           // error.
